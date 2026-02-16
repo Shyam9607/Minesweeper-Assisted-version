@@ -13,6 +13,25 @@ class DPSolver:
     def get_move(self, board, is_hint=False):
         frontier = board.get_revealed_numbered_nodes()
         self.clusters = self.find_clusters(frontier, board)
+        
+        all_safe_reveals = []
+        all_safe_flags = []
+
+        for cluster in self.clusters:
+            safe, flags = self.dp_solve_cluster(cluster, board)
+            all_safe_reveals.extend([m for m in safe if m not in all_safe_reveals])
+            all_safe_flags.extend([m for m in flags if m not in all_safe_flags])
+
+        if all_safe_reveals:
+            target = all_safe_reveals[0]
+            if not is_hint: self.log(f"DP: Safe at ({target.r},{target.c})")
+            return (target.r, target.c, 'reveal')
+
+        if all_safe_flags:
+            target = all_safe_flags[0]
+            if not is_hint: self.log(f"DP: Mine at ({target.r},{target.c})")
+            return (target.r, target.c, 'flag')
+
         return None
 
     def find_clusters(self, frontier, board):
@@ -32,3 +51,50 @@ class DPSolver:
                             queue.append(potential)
             clusters.append(cluster)
         return clusters
+
+    def dp_solve_cluster(self, cluster, board):
+        hidden_set = set()
+        for cell in cluster:
+            for h in board.get_hidden_neighbors(cell):
+                hidden_set.add(h)
+        hidden_list = list(hidden_set)
+        
+        if not hidden_list: return [], []
+
+        initial_needs = []
+        for cell in cluster:
+            flagged_count = len(board.get_flagged_neighbors(cell))
+            initial_needs.append(cell.number - flagged_count)
+
+        mine_counts = {h: 0 for h in hidden_list}
+
+        def dp(index, current_needs):
+            if index == len(hidden_list):
+                if all(n == 0 for n in current_needs): return 1
+                return 0
+
+            h_cell = hidden_list[index]
+            total_valid_configs = 0
+
+            # Branch 1: Safe
+            total_valid_configs += dp(index + 1, current_needs)
+
+            # Branch 2: Mine
+            new_needs = list(current_needs)
+            valid_mine_placement = True
+            for i, constraint_cell in enumerate(cluster):
+                if h_cell in constraint_cell.neighbors:
+                    new_needs[i] -= 1
+                    if new_needs[i] < 0:
+                        valid_mine_placement = False
+                        break
+            
+            if valid_mine_placement:
+                 ways_if_mine = dp(index + 1, new_needs)
+                 total_valid_configs += ways_if_mine
+                 # Note: Counting logic will be refined in later commits
+            
+            return total_valid_configs
+
+        total_configs = dp(0, initial_needs)
+        return [], []
