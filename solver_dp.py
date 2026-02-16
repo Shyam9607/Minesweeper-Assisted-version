@@ -65,10 +65,15 @@ class DPSolver:
         for cell in cluster:
             flagged_count = len(board.get_flagged_neighbors(cell))
             initial_needs.append(cell.number - flagged_count)
-
+            
+        memo = {} 
         mine_counts = {h: 0 for h in hidden_list}
 
         def dp(index, current_needs):
+            state = (index, tuple(current_needs))
+            if state in memo:
+                return memo[state]
+                
             if index == len(hidden_list):
                 if all(n == 0 for n in current_needs): return 1
                 return 0
@@ -92,8 +97,8 @@ class DPSolver:
             if valid_mine_placement:
                  ways_if_mine = dp(index + 1, new_needs)
                  total_valid_configs += ways_if_mine
-                 # Note: Counting logic will be refined in later commits
             
+            memo[state] = total_valid_configs
             return total_valid_configs
 
         total_configs = dp(0, initial_needs)
