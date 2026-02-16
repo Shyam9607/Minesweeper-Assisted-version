@@ -32,6 +32,7 @@ class DPSolver:
             if not is_hint: self.log(f"DP: Mine at ({target.r},{target.c})")
             return (target.r, target.c, 'flag')
 
+        if not is_hint: return self.make_guess(board)
         return None
 
     def find_clusters(self, frontier, board):
@@ -113,3 +114,12 @@ class DPSolver:
                 elif mine_counts[h] == 0: safe_moves.append(h)
 
         return safe_moves, flag_moves
+
+    def make_guess(self, board):
+        valid = [(r, c) for r in range(board.rows) for c in range(board.cols) 
+                 if not board.grid[r][c].is_revealed and not board.grid[r][c].is_flagged]
+        if valid:
+            m = random.choice(valid)
+            self.log(f"DP: Probability guess at ({m[0]},{m[1]})")
+            return (m[0], m[1], 'reveal')
+        return None
