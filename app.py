@@ -7,7 +7,7 @@ from board import Board
 from ai_solver import AI_Solver
 from button import Button   
 from solver_dnc import DNCSolver
-
+from solver_dp import DPSolver
 
 
 
@@ -248,7 +248,9 @@ class App:
             return Board(self.grid_size, self.grid_size, self.calc_mines())
 
         # --- SELECT THE CORRECT SOLVER ---
-        if self.ai_algorithm == "D&C":
+        if self.ai_algorithm == "DP":
+            ai = DPSolver()
+        elif self.ai_algorithm == "D&C":
             ai = DNCSolver()
         else:
             # This uses your original ai_solver.py file!
