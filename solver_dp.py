@@ -97,9 +97,19 @@ class DPSolver:
             if valid_mine_placement:
                  ways_if_mine = dp(index + 1, new_needs)
                  total_valid_configs += ways_if_mine
+                 if ways_if_mine > 0:
+                     mine_counts[h_cell] += ways_if_mine
             
             memo[state] = total_valid_configs
             return total_valid_configs
 
         total_configs = dp(0, initial_needs)
-        return [], []
+        
+        safe_moves = []
+        flag_moves = []
+        if total_configs > 0:
+            for h in hidden_list:
+                if mine_counts[h] == total_configs: flag_moves.append(h)
+                elif mine_counts[h] == 0: safe_moves.append(h)
+
+        return safe_moves, flag_moves
