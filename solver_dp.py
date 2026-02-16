@@ -24,12 +24,12 @@ class DPSolver:
 
         if all_safe_reveals:
             target = all_safe_reveals[0]
-            if not is_hint: self.log(f"DP: Safe at ({target.r},{target.c})")
+            if not is_hint: self.log(f"DP: 100% Safe Reality at ({target.r},{target.c})")
             return (target.r, target.c, 'reveal')
 
         if all_safe_flags:
             target = all_safe_flags[0]
-            if not is_hint: self.log(f"DP: Mine at ({target.r},{target.c})")
+            if not is_hint: self.log(f"DP: 100% Mine Reality at ({target.r},{target.c})")
             return (target.r, target.c, 'flag')
 
         if not is_hint: return self.make_guess(board)
