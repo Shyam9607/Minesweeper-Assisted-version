@@ -36,6 +36,7 @@ class DPSolver:
         return None
 
     def find_clusters(self, frontier, board):
+        """Graph BFS to isolate subproblems."""
         visited = set()
         clusters = []
         for cell in frontier:
@@ -54,6 +55,10 @@ class DPSolver:
         return clusters
 
     def dp_solve_cluster(self, cluster, board):
+        """
+        DYNAMIC PROGRAMMING CORE:
+        Calculates all valid permutations of mines using overlapping states.
+        """
         hidden_set = set()
         for cell in cluster:
             for h in board.get_hidden_neighbors(cell):
@@ -116,6 +121,7 @@ class DPSolver:
         return safe_moves, flag_moves
 
     def make_guess(self, board):
+        # ... (Same guess logic as D&C) ...
         valid = [(r, c) for r in range(board.rows) for c in range(board.cols) 
                  if not board.grid[r][c].is_revealed and not board.grid[r][c].is_flagged]
         if valid:
