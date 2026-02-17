@@ -5,7 +5,11 @@ import os
 from constants import *
 from board import Board
 from ai_solver import AI_Solver
-from button import Button
+from button import Button   
+from solver_dnc import DNCSolver
+from solver_dp import DPSolver
+
+
 
 # --- NEW COLORS FOR VISUALIZATION ---
 C_THINKING = (0, 255, 255)   # Cyan for considering candidates
@@ -30,6 +34,7 @@ class App:
         self.difficulty = "Easy" 
         self.mode = "Menu" 
         self.vs_cpu = False
+        self.ai_algorithm = "Greedy"
         self.cell_size = CELL_SIZE 
         
         self.bg_image = None
@@ -118,20 +123,33 @@ class App:
 
     def settings_loop(self):
         bg_blur = self.get_blurred_background()
+        
+        # 1. Setup Grid Size Buttons
         btns_size = []
         sizes = [8, 12, 16, 20]
         for i, s in enumerate(sizes):
             col = C_ACCENT if self.grid_size == s else C_PANEL
             btns_size.append(Button(200 + i*70, 200, 60, 40, str(s), color=col))
 
+        # 2. Setup Difficulty Buttons
         btns_diff = []
         diffs = ["Easy", "Medium", "Hard"]
         for i, d in enumerate(diffs):
             col = C_ACCENT if self.difficulty == d else C_PANEL
             btns_diff.append(Button(200 + i*120, 300, 100, 40, d, color=col))
+            
+        # 3. Setup AI Mode Buttons (Fixed Indentation)
+        btns_ai = []
+        algos = ["Greedy", "D&C", "DP"]
+        if self.vs_cpu:
+            for i, a in enumerate(algos):
+                col = C_ACCENT if self.ai_algorithm == a else C_PANEL
+                btns_ai.append(Button(200 + i*130, 400, 100, 40, a, color=col))
 
-        btn_start = Button(300, 450, 200, 60, "START GAME", color=C_FLAG)
+        # 4. Moved Start Button down slightly to make room
+        btn_start = Button(300, 500, 200, 60, "START GAME", color=C_FLAG)
         btn_clear_log = Button(40, 520, 140, 40, "CLEAR LOGS", color=(180, 50, 50))
+        btn_back = Button(620, 520, 140, 40, "BACK", color=C_PANEL)
 
         self.screen.fill((0,0,0))
         pygame.display.flip()
@@ -154,12 +172,19 @@ class App:
             self.screen.blit(lbl_diff, (60, 310))
             for b in btns_diff: b.draw(self.screen, self.font)
 
+            if self.vs_cpu:
+                lbl_ai = self.font.render("AI MODE:", True, C_TEXT_MAIN)
+                self.screen.blit(lbl_ai, (80, 410))
+                for b in btns_ai: b.draw(self.screen, self.font)
+
             btn_start.draw(self.screen, self.font)
             btn_clear_log.draw(self.screen, self.font)
+            btn_back.draw(self.screen, self.font)
             
+            # FIXED OVERLAP: Moved the "Mines" text down so it doesn't block the D&C button
             info = f"Mines: {self.calc_mines()}"
             info_surf = self.font.render(info, True, (200, 200, 200)) 
-            self.screen.blit(info_surf, (350, 400))
+            self.screen.blit(info_surf, (350, 465)) 
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -175,6 +200,13 @@ class App:
                         self.difficulty = diffs[i]
                         for k, bx in enumerate(btns_diff): bx.color = C_ACCENT if k == i else C_PANEL
                 
+                # FIXED: Added back the missing AI Button click logic!
+                if self.vs_cpu:
+                    for i, b in enumerate(btns_ai):
+                        if b.is_clicked(event):
+                            self.ai_algorithm = algos[i]
+                            for k, bx in enumerate(btns_ai): bx.color = C_ACCENT if k == i else C_PANEL
+
                 if btn_start.is_clicked(event):
                     self.fade_transition()
                     self.mode = "Game"
@@ -188,6 +220,11 @@ class App:
                         print("Logs cleared successfully.")
                     except Exception as e:
                         print(f"Error clearing logs: {e}")
+
+                if btn_back.is_clicked(event):
+                    self.fade_transition()
+                    self.mode = "Menu"
+                    return
 
             pygame.display.flip()
             self.clock.tick(60)
@@ -210,8 +247,17 @@ class App:
         def init_game():
             return Board(self.grid_size, self.grid_size, self.calc_mines())
 
+        # --- SELECT THE CORRECT SOLVER ---
+        if self.ai_algorithm == "DP":
+            ai = DPSolver()
+        elif self.ai_algorithm == "D&C":
+            ai = DNCSolver()
+        else:
+            # This uses your original ai_solver.py file!
+            ai = AI_Solver() 
+            ai.name = "Greedy"
+            
         board = init_game()
-        ai = AI_Solver()
         turn = "Human"
         scores = {"Human": {'RS':0, 'CF':0, 'WF':0}, "AI": {'RS':0, 'CF':0, 'WF':0}}
         ai_timer = 0
@@ -229,6 +275,7 @@ class App:
 
         move_log = []
 
+        # --- HELPER: Get Frontier Cells (for visualization) ---
         def get_frontier(board_obj):
             frontier = set()
             for r in range(self.grid_size):
@@ -305,6 +352,18 @@ class App:
                     if last_ai_move and last_ai_move == (r, c):
                         pygame.draw.rect(self.screen, (50, 100, 255), rect, 3, border_radius=4)
 
+            # --- VISUALIZE D&C/DP CLUSTERS (Graph Edges) ---
+            if self.vs_cpu and hasattr(ai, 'clusters') and ai.clusters:
+                for cluster in ai.clusters:
+                    if len(cluster) > 1:
+                        for k in range(len(cluster) - 1):
+                            c1, c2 = cluster[k], cluster[k+1]
+                            x1 = MARGIN + c1.c * draw_cell_size + draw_cell_size // 2
+                            y1 = MARGIN + c1.r * draw_cell_size + draw_cell_size // 2
+                            x2 = MARGIN + c2.c * draw_cell_size + draw_cell_size // 2
+                            y2 = MARGIN + c2.r * draw_cell_size + draw_cell_size // 2
+                            pygame.draw.line(self.screen, (0, 100, 255), (x1, y1), (x2, y2), 2)
+                            
             # Draw Sidebar Lines
             h_x = MARGIN + grid_px
             h_y = MARGIN + grid_px
@@ -511,19 +570,24 @@ class App:
                 if btn_save.is_clicked(event): save_logs_to_file()
 
                 if btn_reset.is_clicked(event):
-                    save_logs_to_file()
-                    board = init_game()
-                    scores = {"Human": {'RS':0, 'CF':0, 'WF':0}, "AI": {'RS':0, 'CF':0, 'WF':0}}
-                    turn = "Human"
-                    hint = None
-                    last_ai_move = None 
-                    ai_moves.clear()
-                    move_log = [] 
-                    ai.log("Game Reset.")
-                    game_started = False
-                    start_ticks = 0
-                    elapsed_time = 0
-                    total_moves = 0 
+                        save_logs_to_file()
+                        board = init_game()
+                        scores = {"Human": {'RS':0, 'CF':0, 'WF':0}, "AI": {'RS':0, 'CF':0, 'WF':0}}
+                        turn = "Human"
+                        hint = None
+                        last_ai_move = None 
+                        ai_moves.clear()
+                        
+                        # --- INDENTED INSIDE THE RESET BLOCK ---
+                        if hasattr(ai, 'clusters'):
+                            ai.clusters.clear()
+                            
+                        move_log = [] 
+                        ai.log("Game Reset.")
+                        game_started = False
+                        start_ticks = 0
+                        elapsed_time = 0
+                        total_moves = 0
 
                 if show_undo and btn_undo.is_clicked(event):
                     if turn == "Human" and board.undo():
@@ -620,7 +684,7 @@ class App:
                     if frontier:
                         draw_game(time_str, timer_color, show_undo, highlights=frontier, highlight_col=C_THINKING)
                         pygame.display.flip()
-                        pygame.time.delay(300)
+                        pygame.time.delay(300) # Pause to show thinking
 
                     # Get the actual move
                     move = ai.get_move(board)
@@ -673,7 +737,3 @@ class App:
             draw_game(time_str, timer_color, show_undo)
             pygame.display.flip()
             self.clock.tick(60)
-
-
-
-
