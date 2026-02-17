@@ -1,5 +1,5 @@
 import random
-from collections import deque   # ✅ NEW
+from collections import deque   
 
 class DPSolver:
     def __init__(self):
@@ -52,13 +52,13 @@ class DPSolver:
 
             cluster = []
 
-            # ✅ USING DEQUE INSTEAD OF LIST
+            # USING DEQUE INSTEAD OF LIST
             queue = deque([cell])
 
             visited.add(cell)
 
             while queue:
-                current = queue.popleft()   # ✅ O(1) instead of pop(0)
+                current = queue.popleft()   # O(1) instead of pop(0)
                 cluster.append(current)
 
                 for h_neighbor in board.get_hidden_neighbors(current):
@@ -156,3 +156,4 @@ class DPSolver:
             return (m[0], m[1], 'reveal')
 
         return None
+
