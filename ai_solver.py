@@ -121,3 +121,4 @@ class AI_Solver:
         # No valid move available
         return None
 
+
