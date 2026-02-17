@@ -1,164 +1,122 @@
 import random
 
+# ------------------------------------------------------------
+# GREEDY AI SOLVER FOR MINESWEEPER
+# ------------------------------------------------------------
+# This module implements a greedy, constraint-based AI strategy
+# for playing Minesweeper. The AI makes decisions using only
+# visible information (revealed cells and flags) without
+# accessing hidden mine locations.
+#
+# Algorithmic Concepts Used:
+# - Greedy Strategy
+# - Constraint Satisfaction
+# - Graph-based neighbor analysis (via board methods)
+# ------------------------------------------------------------
+
 class AI_Solver:
     def __init__(self):
+        # Stores recent AI decisions for display and debugging
         self.logs = ["Game Started. AI Ready."]
-        self.name = "Integrated D&C + DP"
 
     def log(self, message):
+        """
+        Adds a message to the AI log.
+        Maintains only the most recent log entries to avoid clutter.
+        """
         self.logs.append(message)
         if len(self.logs) > 8:
             self.logs.pop(0)
 
-    # ------------------------------------------------------------
-    # DIVIDE: Split frontier into independent clusters
-    
-    def get_constraint_regions(self, board):
-        frontier = board.get_revealed_numbered_nodes()
-        visited = set()
-        regions = []
+    def get_move(self, board, is_hint=False):
+        """
+        Determines the next move for the AI.
 
+        Parameters:
+        - board: Current game board state
+        - is_hint: If True, AI suggests a move without logging or executing it
+
+        Returns:
+        - (row, column, action) tuple where action is 'reveal' or 'flag'
+        """
+
+        # Frontier consists of revealed numbered cells
+        # These cells provide constraints for decision making
+        frontier = board.get_revealed_numbered_nodes()
+
+        # Separate move lists for greedy prioritization
+        moves_reveal = []   # Guaranteed safe cells
+        moves_flag = []     # Guaranteed mine cells
+
+        # Analyze each constraint-providing cell
         for cell in frontier:
-            if cell in visited:
+            hidden = board.get_hidden_neighbors(cell)
+            flagged = board.get_flagged_neighbors(cell)
+
+            # Skip cells with no unresolved neighbors
+            if not hidden:
                 continue
 
-            stack = [cell]
-            region = []
+            # ------------------------------------------------
+            # RULE 1: SATISFACTION RULE (Clear Around)
+            # If the number of flagged neighbors equals the
+            # number on the cell, all remaining hidden
+            # neighbors are safe.
+            # ------------------------------------------------
+            if len(flagged) == cell.number:
+                for h in hidden:
+                    if h not in moves_reveal:
+                        moves_reveal.append(h)
 
-            while stack:
-                current = stack.pop()
-                if current in visited:
-                    continue
+            # ------------------------------------------------
+            # RULE 2: DEDUCTION RULE (Mine Finding)
+            # If the number of hidden neighbors plus existing
+            # flags equals the cell number, all hidden
+            # neighbors must be mines.
+            # ------------------------------------------------
+            elif (cell.number - len(flagged)) == len(hidden):
+                for h in hidden:
+                    if h not in moves_flag:
+                        moves_flag.append(h)
 
-                visited.add(current)
-                region.append(current)
+        # ------------------------------------------------
+        # GREEDY EXECUTION ORDER
+        # Priority:
+        # 1. Reveal guaranteed safe cells
+        # 2. Flag guaranteed mines
+        # 3. Guess if no logical move exists
+        # ------------------------------------------------
 
-                hidden_current = set(board.get_hidden_neighbors(current))
-
-                for other in frontier:
-                    if other not in visited:
-                        hidden_other = set(board.get_hidden_neighbors(other))
-                        if hidden_current & hidden_other:
-                            stack.append(other)
-
-            if region:
-                regions.append(region)
-
-        return regions
-
-    # ------------------------------------------------------------
-    # CONQUER USING  DYNAMIC PROGRAMMING
-   
-    def dp_solve_region(self, board, region):
-
-        hidden_set = set()
-        for cell in region:
-            for h in board.get_hidden_neighbors(cell):
-                hidden_set.add(h)
-
-        hidden_list = list(hidden_set)
-        if not hidden_list:
-            return [], []
-
-        # Calculate how many mines each numbered cell still needs
-        initial_needs = []
-        for cell in region:
-            flagged = len(board.get_flagged_neighbors(cell))
-            initial_needs.append(cell.number - flagged)
-
-        memo = {}
-        mine_counts = {h: 0 for h in hidden_list}
-
-        # Recursive DP
-        def dp(index, needs):
-
-            state = (index, tuple(needs))
-            if state in memo:
-                return memo[state]
-
-            # Base case
-            if index == len(hidden_list):
-                if all(n == 0 for n in needs):
-                    return 1
-                return 0
-
-            total = 0
-            h_cell = hidden_list[index]
-
-            # --- Assume SAFE ---
-            total += dp(index + 1, needs)
-
-            # --- Assume MINE ---
-            new_needs = list(needs)
-            valid = True
-
-            for i, constraint_cell in enumerate(region):
-                if h_cell in constraint_cell.neighbors:
-                    new_needs[i] -= 1
-                    if new_needs[i] < 0:
-                        valid = False
-                        break
-
-            if valid:
-                ways = dp(index + 1, new_needs)
-                total += ways
-                if ways > 0:
-                    mine_counts[h_cell] += ways
-
-            memo[state] = total
-            return total
-
-        total_configs = dp(0, initial_needs)
-
-        safe_moves = []
-        flag_moves = []
-
-        if total_configs > 0:
-            for h in hidden_list:
-                if mine_counts[h] == total_configs:
-                    flag_moves.append(h)
-                elif mine_counts[h] == 0:
-                    safe_moves.append(h)
-
-        return safe_moves, flag_moves
-
-    # ------------------------------------------------------------
-    # MAIN MOVE FUNCTION
-   
-    def get_move(self, board, is_hint=False):
-
-        regions = self.get_constraint_regions(board)
-
-        all_safe = []
-        all_flags = []
-
-        for region in regions:
-            safe, flags = self.dp_solve_region(board, region)
-            all_safe.extend([m for m in safe if m not in all_safe])
-            all_flags.extend([m for m in flags if m not in all_flags])
-
-        if all_safe:
-            target = all_safe[0]
+        # Priority 1: Safe reveal
+        if moves_reveal:
+            target = moves_reveal[0]  # Greedy choice: first safe move
             if not is_hint:
-                self.log(f"DP: 100% Safe at ({target.r},{target.c})")
+                self.log(f"AI: Safe clear at ({target.r},{target.c})")
             return (target.r, target.c, 'reveal')
 
-        if all_flags:
-            target = all_flags[0]
+        # Priority 2: Flag mine
+        if moves_flag:
+            target = moves_flag[0]  # Greedy choice: first deduced mine
             if not is_hint:
-                self.log(f"DP: 100% Mine at ({target.r},{target.c})")
+                self.log(f"AI: Flagging mine at ({target.r},{target.c})")
             return (target.r, target.c, 'flag')
 
-        # Fallback Guess
+        # Priority 3: Guess (only when logically stuck)
         if not is_hint:
-            valid = [(r, c) for r in range(board.rows)
-                     for c in range(board.cols)
-                     if not board.grid[r][c].is_revealed
-                     and not board.grid[r][c].is_flagged]
+            valid_moves = []
 
-            if valid:
-                move = random.choice(valid)
-                self.log(f"Guessing at ({move[0]},{move[1]})")
+            # Collect all unrevealed and unflagged cells
+            for r in range(board.rows):
+                for c in range(board.cols):
+                    cell = board.grid[r][c]
+                    if not cell.is_revealed and not cell.is_flagged:
+                        valid_moves.append((r, c))
+
+            # Random selection represents unavoidable uncertainty
+            if valid_moves:
+                move = random.choice(valid_moves)
+                self.log(f"AI: Guessing at ({move[0]},{move[1]})")
                 return (move[0], move[1], 'reveal')
 
+        # No valid move available
         return None
