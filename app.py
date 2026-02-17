@@ -33,7 +33,7 @@ class App:
         self.cell_size = CELL_SIZE 
         
         self.bg_image = None
-        bg_path = r"Images\Startup-Page-BG-Image.jpg"
+        bg_path = os.path.join("Images", "Startup-Page-BG-Image.jpg")
         try:
             loaded_img = pygame.image.load(bg_path).convert()
             self.bg_image = pygame.transform.smoothscale(loaded_img, (self.screen_w, self.screen_h))
@@ -181,7 +181,10 @@ class App:
                     return
                 
                 if btn_clear_log.is_clicked(event):
-                    log_path = r"D:\Mines_DAA\Minesweeper_V3.0\Game_logs\all_game_logs.txt"
+                    log_dir = os.path.join(os.getcwd(), "Game_logs")
+                    log_path = os.path.join(log_dir, "all_game_logs.txt")
+                    if not os.path.exists(log_dir):
+                        os.makedirs(log_dir)
                     try:
                         with open(log_path, "w") as f:
                             f.write(f"LOG CLEARED: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -384,7 +387,7 @@ class App:
 
         def save_logs_to_file():
             if not move_log: return
-            log_dir = r"D:\Mines_DAA\Minesweeper_V3.0\Game_logs"
+            log_dir = os.path.join(os.getcwd(), "Game_logs")
             if not os.path.exists(log_dir):
                 try: os.makedirs(log_dir)
                 except OSError as e: print(f"Error creating log directory: {e}"); return
@@ -673,6 +676,7 @@ class App:
             draw_game(time_str, timer_color, show_undo)
             pygame.display.flip()
             self.clock.tick(60)
+
 
 
 
