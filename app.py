@@ -8,6 +8,7 @@ from ai_solver import AI_Solver
 from button import Button   
 from solver_dnc import DNCSolver
 from solver_dp import DPSolver
+from solver_backtrack import BacktrackingSolver
 
 
 
@@ -140,7 +141,7 @@ class App:
             
         # 3. Setup AI Mode Buttons (Fixed Indentation)
         btns_ai = []
-        algos = ["Greedy", "D&C", "DP"]
+        algos = ["Greedy", "D&C", "DP", "BT"]
         if self.vs_cpu:
             for i, a in enumerate(algos):
                 col = C_ACCENT if self.ai_algorithm == a else C_PANEL
@@ -252,6 +253,8 @@ class App:
             ai = DPSolver()
         elif self.ai_algorithm == "D&C":
             ai = DNCSolver()
+        elif self.ai_algorithm == "BT":
+            ai = BacktrackingSolver()
         else:
             # This uses your original ai_solver.py file!
             ai = AI_Solver() 
@@ -352,23 +355,69 @@ class App:
                     if last_ai_move and last_ai_move == (r, c):
                         pygame.draw.rect(self.screen, (50, 100, 255), rect, 3, border_radius=4)
 
-            # --- VISUALIZE D&C/DP CLUSTERS (Graph Edges) ---
+            # --- VISUALIZE CLUSTERS ---
             if self.vs_cpu and hasattr(ai, 'clusters') and ai.clusters:
-                for cluster in ai.clusters:
-                    if len(cluster) > 1:
-                        for k in range(len(cluster) - 1):
-                            c1, c2 = cluster[k], cluster[k+1]
-                            x1 = MARGIN + c1.c * draw_cell_size + draw_cell_size // 2
-                            y1 = MARGIN + c1.r * draw_cell_size + draw_cell_size // 2
-                            x2 = MARGIN + c2.c * draw_cell_size + draw_cell_size // 2
-                            y2 = MARGIN + c2.r * draw_cell_size + draw_cell_size // 2
-                            pygame.draw.line(self.screen, (0, 100, 255), (x1, y1), (x2, y2), 2)
-                            
+                if self.ai_algorithm == "BT":
+                    # BACKTRACKING: Colored overlay on analyzed cells
+                    bt_palette = [
+                        (138, 43, 226), (255, 20, 147), (0, 206, 209),
+                        (255, 165, 0), (50, 205, 50), (255, 215, 0),
+                    ]
+                    bt_names = ["Violet", "Pink", "Cyan", "Orange", "Green", "Gold"]
+                    active_clusters = []
+                    for ci, cluster in enumerate(ai.clusters):
+                        bcolor = bt_palette[ci % len(bt_palette)]
+                        # Collect hidden cells for this cluster
+                        cluster_hidden = set()
+                        for cl_cell in cluster:
+                            for h in board.get_hidden_neighbors(cl_cell):
+                                cluster_hidden.add(h)
+                        if cluster_hidden:
+                            active_clusters.append((ci, bcolor))
+                        # Semi-transparent overlay on hidden cells
+                        overlay_surf = pygame.Surface((draw_cell_size-1, draw_cell_size-1), pygame.SRCALPHA)
+                        overlay_surf.fill((*bcolor, 30))
+                        for h_cell in cluster_hidden:
+                            hx = MARGIN + h_cell.c * draw_cell_size
+                            hy = MARGIN + h_cell.r * draw_cell_size
+                            self.screen.blit(overlay_surf, (hx, hy))
+                            h_rect = pygame.Rect(hx, hy, draw_cell_size-1, draw_cell_size-1)
+                            pygame.draw.rect(self.screen, bcolor, h_rect, 1, border_radius=4)
+                        # Thin border on constraint (numbered) cells
+                        for con_cell in cluster:
+                            cx = MARGIN + con_cell.c * draw_cell_size
+                            cy = MARGIN + con_cell.r * draw_cell_size
+                            c_rect = pygame.Rect(cx, cy, draw_cell_size-1, draw_cell_size-1)
+                            pygame.draw.rect(self.screen, bcolor, c_rect, 1, border_radius=4)
+                    # --- LEGEND below the grid ---
+                    legend_y = MARGIN + grid_px + 10
+                    legend_font = pygame.font.SysFont("Consolas", 13)
+                    lx = MARGIN
+                    for ci, bcolor in active_clusters:
+                        name = bt_names[ci % len(bt_names)]
+                        label = f"Cluster {ci+1}"
+                        pygame.draw.rect(self.screen, bcolor, (lx, legend_y + 2, 10, 10))
+                        ltxt = legend_font.render(label, True, bcolor)
+                        self.screen.blit(ltxt, (lx + 14, legend_y))
+                        lx += ltxt.get_width() + 24
+                else:
+                    # D&C / DP: Line-based visualization
+                    for cluster in ai.clusters:
+                        if len(cluster) > 1:
+                            for k in range(len(cluster) - 1):
+                                c1, c2 = cluster[k], cluster[k+1]
+                                x1 = MARGIN + c1.c * draw_cell_size + draw_cell_size // 2
+                                y1 = MARGIN + c1.r * draw_cell_size + draw_cell_size // 2
+                                x2 = MARGIN + c2.c * draw_cell_size + draw_cell_size // 2
+                                y2 = MARGIN + c2.r * draw_cell_size + draw_cell_size // 2
+                                pygame.draw.line(self.screen, (0, 100, 255), (x1, y1), (x2, y2), 2)
+
             # Draw Sidebar Lines
             h_x = MARGIN + grid_px
             h_y = MARGIN + grid_px
-            pygame.draw.line(self.screen, (150, 150, 150), (h_x, h_y), (h_x + 15, h_y + 15), 3)
-            pygame.draw.line(self.screen, (150, 150, 150), (h_x + 6, h_y + 15), (h_x + 15, h_y + 6), 2)
+            if self.ai_algorithm != "BT":
+                pygame.draw.line(self.screen, (150, 150, 150), (h_x, h_y), (h_x + 15, h_y + 15), 3)
+                pygame.draw.line(self.screen, (150, 150, 150), (h_x + 6, h_y + 15), (h_x + 15, h_y + 6), 2)
             
             pygame.draw.rect(self.screen, C_PANEL, (sidebar_x, MARGIN, SIDEBAR_WIDTH, game_h - MARGIN*2), border_radius=10)
             pygame.draw.rect(self.screen, C_ACCENT, (sidebar_x, MARGIN, SIDEBAR_WIDTH, game_h - MARGIN*2), 2, border_radius=10)
@@ -397,6 +446,13 @@ class App:
             draw_score("HUMAN", scores['Human'], MARGIN + 140)
             if self.vs_cpu:
                 draw_score("AI CPU", scores['AI'], MARGIN + 170)
+
+            # --- BACKTRACKING STATS ---
+            if self.ai_algorithm == "BT" and hasattr(ai, 'bt_stats'):
+                st = ai.bt_stats
+                stat_txt = f"Solutions: {st['solutions']}  |  Pruned: {st['pruned']}"
+                stat_surf = font_log.render(stat_txt, True, (138, 43, 226))
+                self.screen.blit(stat_surf, (sidebar_x + 20, MARGIN + 200))
 
             log_y_start = MARGIN + 220
             pygame.draw.line(self.screen, (60,60,70), (sidebar_x+10, log_y_start), (sidebar_x+SIDEBAR_WIDTH-10, log_y_start))
