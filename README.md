@@ -1,6 +1,6 @@
 # Minesweeper Graph AI
 
-A modern, feature-rich Minesweeper clone built with Python and Pygame, featuring three interchangeable AI opponents (Greedy, Divide & Conquer, and Dynamic Programming) that play alongside you.
+A modern, feature-rich Minesweeper clone built with Python and Pygame, featuring four interchangeable AI opponents (Greedy, Divide & Conquer, Dynamic Programming, and Backtracking) that play alongside you.
 
 ## 🚀 How to Run
 
@@ -25,6 +25,7 @@ The project code is modularized for clarity and maintainability:
 * **`ai_solver.py`**: The baseline Greedy AI opponent. Implements basic constraint satisfaction logic.
 * **`solver_dnc.py`**: The Divide & Conquer AI module. Implements graph partitioning to isolate sub-problems.
 * **`solver_dp.py`**: The Dynamic Programming AI module. Implements state-space search and memoization.
+* **`solver_backtrack.py`**: The Backtracking AI module. Implements recursive trial-and-error with constraint pruning.
 * **`button.py`**: A helper class for creating interactive UI buttons.
 * **`constants.py`**: Stores shared configuration values like colors, dimensions, and settings.
 
@@ -36,8 +37,9 @@ The project code is modularized for clarity and maintainability:
 * **Difficulty Levels**: Easy, Medium, Hard (affects mine density).
 * **Dynamic Grid**: Customizable grid sizes (8x8 to 20x20).
 * **Tools**:
-    * **Swappable AI Brains**: Switch between Greedy, D&C, and DP solvers on the fly from the settings.
-    * **Algorithmic Visualizer**: Watch the AI "think" with dynamic highlights and blue graph edges representing calculated sub-problems.
+    * **Swappable AI Brains**: Switch between Greedy, D&C, DP, and Backtracking solvers on the fly from the settings.
+    * **Algorithmic Visualizer**: Watch the AI "think" with dynamic highlights — blue graph edges for D&C/DP clusters, colored overlays for Backtracking analysis regions.
+    * **Backtracking Stats**: Live display of valid solutions found and branches pruned during Backtracking mode.
     * **Hint System**: Ask the AI for a move if you are stuck.
     * **Undo**: Revert accidental clicks (Human turn only).
     * **Reset**: Quick restart with deep memory flushing.
@@ -45,7 +47,7 @@ The project code is modularized for clarity and maintainability:
 
 ## 🧠 AI & Algorithms
 
-This project implements three distinct tiers of artificial intelligence, allowing users to observe the evolution of constraint satisfaction and state-space search.
+This project implements four distinct tiers of artificial intelligence, allowing users to observe the evolution of constraint satisfaction and state-space search.
 
 ### 1. The Greedy Strategy (Baseline)
 The default AI (`ai_solver.py`) uses a **Greedy Constraint Satisfaction** approach, evaluating one cell at a time based on a hierarchy of logic:
@@ -65,10 +67,18 @@ The DP solver (`solver_dp.py`) handles complex overlapping constraints (like a 1
 * **Action (Memoization)**: Caches evaluated board states in memory to prevent combinatorial explosion. By mathematically tallying all valid realities, it identifies cells that are mines in 100% of configurations.
 * **Effect**: Safely solves advanced, overlapping patterns without guessing, acting as the ultimate, mathematically perfect solver.
 
+### 4. Backtracking (Recursive Constraint Pruning)
+The Backtracking solver (`solver_backtrack.py`) uses systematic trial-and-error with aggressive pruning to explore the solution space.
+* **Logic (Explore)**: For each hidden cell in a cluster, recursively tries two assignments — "safe" or "mine". After each assignment, it immediately checks all affected constraints.
+* **Action (Prune & Backtrack)**: If a partial assignment violates any constraint (too many mines, or not enough cells left), it **prunes** the entire branch and **backtracks** to try the other option. This avoids exploring invalid configurations.
+* **Result Analysis**: Across all valid solutions, it tallies how often each cell is a mine. Cells that are mines in 100% of solutions → flag. Cells that are mines in 0% → safe reveal. Otherwise, it picks the cell with the lowest mine probability.
+* **Safety Fallback**: For clusters with >25 hidden cells (where 2^n exploration is too costly), it falls back to basic constraint rules.
+* **Complexity**: O(2^n) worst case per cluster, but constraint pruning makes it much faster in practice. Space: O(n) recursion stack.
+
 ### Application Flow
 Every time the AI takes a turn or provides a hint:
 1.  It scans the "Frontier" (revealed cells bordering hidden ones).
-2.  It routes the board data to the selected AI Brain (Greedy, D&C, or DP).
-3.  The UI visualizer renders the AI's internal process (e.g., drawing blue graph edges for BFS clusters).
+2.  It routes the board data to the selected AI Brain (Greedy, D&C, DP, or Backtracking).
+3.  The UI visualizer renders the AI's internal process (e.g., blue graph edges for BFS clusters, colored overlays for Backtracking regions).
 4.  It executes guaranteed safe moves or flags guaranteed mines based on its specific algorithmic depth.
 5.  If logical deduction is mathematically impossible across all algorithms, it defaults to a calculated guess.
