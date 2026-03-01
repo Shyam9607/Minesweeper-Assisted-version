@@ -1,4 +1,5 @@
 import random
+from collections import deque
 
 # --- BACKTRACKING SOLVER ---
 # Uses systematic trial-and-error with constraint pruning.
@@ -69,10 +70,10 @@ class BacktrackingSolver:
         for cell in frontier:
             if cell in visited:
                 continue
-            cluster, queue = [], [cell]
+            cluster, queue = [], deque([cell])
             visited.add(cell)
             while queue:
-                current = queue.pop(0)
+                current = queue.popleft()
                 cluster.append(current)
                 for h in board.get_hidden_neighbors(current):
                     for p in h.neighbors:

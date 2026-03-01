@@ -2,6 +2,7 @@ import pygame
 import sys
 import datetime 
 import os 
+import copy
 from constants import *
 from board import Board
 from ai_solver import AI_Solver
@@ -37,9 +38,14 @@ class App:
         self.vs_cpu = False
         self.ai_algorithm = "Greedy"
         self.cell_size = CELL_SIZE 
+
+        # Resolve all file paths relative to this script directory.
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.logs_dir = os.path.join(self.base_dir, "Game_logs")
+        self.log_file_path = os.path.join(self.logs_dir, "all_game_logs.txt")
         
         self.bg_image = None
-        bg_path = r"Images\Startup-Page-BG-Image.jpg"
+        bg_path = os.path.join(self.base_dir, "Images", "Startup-Page-BG-Image.jpg")
         try:
             loaded_img = pygame.image.load(bg_path).convert()
             self.bg_image = pygame.transform.smoothscale(loaded_img, (self.screen_w, self.screen_h))
@@ -214,13 +220,13 @@ class App:
                     return
                 
                 if btn_clear_log.is_clicked(event):
-                    log_path = r"D:\Mines_DAA\Minesweeper_V3.0\Game_logs\all_game_logs.txt"
                     try:
-                        with open(log_path, "w") as f:
+                        os.makedirs(self.logs_dir, exist_ok=True)
+                        with open(self.log_file_path, "w") as f:
                             f.write(f"LOG CLEARED: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                         print("Logs cleared successfully.")
                     except Exception as e:
-                        print(f"Error clearing logs: {e}")
+                        print(f"Warning: could not clear logs: {e}")
 
                 if btn_back.is_clicked(event):
                     self.fade_transition()
@@ -275,8 +281,234 @@ class App:
         
         is_resizing = False
         font_log = pygame.font.SysFont("Consolas", 14)
+        font_stats = pygame.font.SysFont("Consolas", 15)
+        font_stats_hdr = pygame.font.SysFont("Segoe UI", 24, bold=True)
+        font_stats_col = pygame.font.SysFont("Segoe UI", 16, bold=True)
 
         move_log = []
+        show_stats_overlay = False
+
+        # --- Solver Comparison Stats ---
+        solver_names = ["Greedy", "D&C", "DP", "BT"]
+        metric_labels = {
+            "moves_made": "Moves Made",
+            "cells_revealed": "Cells Revealed",
+            "correct_flags": "Correct Flags",
+            "wrong_flags": "Wrong Flags",
+            "guesses_made": "Guesses Made",
+            "clusters_found": "Clusters Found",
+            "valid_solutions": "Valid Solutions",
+            "branches_pruned": "Branches Pruned",
+        }
+        metric_order = [
+            "moves_made",
+            "cells_revealed",
+            "correct_flags",
+            "wrong_flags",
+            "guesses_made",
+            "clusters_found",
+            "valid_solutions",
+            "branches_pruned",
+        ]
+        metric_applicability = {
+            "moves_made": set(solver_names),
+            "cells_revealed": set(solver_names),
+            "correct_flags": set(solver_names),
+            "wrong_flags": set(solver_names),
+            "guesses_made": set(solver_names),
+            "clusters_found": {"D&C", "DP", "BT"},
+            "valid_solutions": {"DP", "BT"},
+            "branches_pruned": {"BT"},
+        }
+
+        def init_solver_stats():
+            stats = {}
+            for s_name in solver_names:
+                stats[s_name] = {}
+                for m_key in metric_order:
+                    if s_name in metric_applicability[m_key]:
+                        stats[s_name][m_key] = 0
+                    else:
+                        stats[s_name][m_key] = None
+            return stats
+
+        solver_stats = init_solver_stats()
+        comparison_solvers = {
+            "Greedy": AI_Solver(),
+            "D&C": DNCSolver(),
+            "DP": DPSolver(),
+            "BT": BacktrackingSolver(),
+        }
+
+        def get_stats_overlay_geometry():
+            panel_w = min(980, game_w - 80)
+            panel_h = min(500, game_h - 80)
+            panel_x = (game_w - panel_w) // 2
+            panel_y = (game_h - panel_h) // 2
+            panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+            close_rect = pygame.Rect(panel_rect.right - 120, panel_rect.top + 14, 100, 34)
+            return panel_rect, close_rect
+
+        def is_guess_move(log_message):
+            if not log_message:
+                return False
+            m = log_message.lower()
+            return "guess" in m
+
+        def estimate_reveal_cells(move):
+            if not move or move[2] != "reveal":
+                return 0
+            r, c, _ = move
+            if not (0 <= r < board.rows and 0 <= c < board.cols):
+                return 0
+            sim_board = copy.deepcopy(board)
+            res = sim_board.reveal(r, c)
+            return res if res > 0 else 0
+
+        def count_dp_valid_solutions(cluster):
+            hidden_set = set()
+            for cell in cluster:
+                for h in board.get_hidden_neighbors(cell):
+                    hidden_set.add(h)
+            hidden_list = list(hidden_set)
+            if not hidden_list:
+                return 0
+
+            initial_needs = []
+            for cell in cluster:
+                flagged_count = len(board.get_flagged_neighbors(cell))
+                initial_needs.append(cell.number - flagged_count)
+
+            memo = {}
+
+            def dp_count(index, current_needs):
+                state = (index, tuple(current_needs))
+                if state in memo:
+                    return memo[state]
+                if index == len(hidden_list):
+                    return 1 if all(n == 0 for n in current_needs) else 0
+
+                total = dp_count(index + 1, current_needs)
+                h_cell = hidden_list[index]
+                new_needs = list(current_needs)
+                valid_mine = True
+
+                for i, constraint_cell in enumerate(cluster):
+                    if h_cell in constraint_cell.neighbors:
+                        new_needs[i] -= 1
+                        if new_needs[i] < 0:
+                            valid_mine = False
+                            break
+
+                if valid_mine:
+                    total += dp_count(index + 1, new_needs)
+
+                memo[state] = total
+                return total
+
+            return dp_count(0, initial_needs)
+
+        def update_solver_stats(solver_name, solver_obj, proposed_move):
+            curr = solver_stats[solver_name]
+            if proposed_move:
+                curr["moves_made"] += 1
+                if proposed_move[2] == "reveal":
+                    curr["cells_revealed"] += estimate_reveal_cells(proposed_move)
+                elif proposed_move[2] == "flag":
+                    r, c, _ = proposed_move
+                    if 0 <= r < board.rows and 0 <= c < board.cols:
+                        if board.grid[r][c].is_mine:
+                            curr["correct_flags"] += 1
+                        else:
+                            curr["wrong_flags"] += 1
+
+            latest_log = solver_obj.logs[-1] if getattr(solver_obj, "logs", None) else ""
+            if proposed_move and is_guess_move(latest_log):
+                curr["guesses_made"] += 1
+
+            if curr["clusters_found"] is not None:
+                curr["clusters_found"] += len(getattr(solver_obj, "clusters", []) or [])
+
+            if solver_name == "DP" and curr["valid_solutions"] is not None:
+                dp_total = 0
+                for cluster in getattr(solver_obj, "clusters", []) or []:
+                    dp_total += count_dp_valid_solutions(cluster)
+                curr["valid_solutions"] += dp_total
+
+            if solver_name == "BT":
+                bt_stats = getattr(solver_obj, "bt_stats", {})
+                if curr["valid_solutions"] is not None:
+                    curr["valid_solutions"] += bt_stats.get("solutions", 0)
+                if curr["branches_pruned"] is not None:
+                    curr["branches_pruned"] += bt_stats.get("pruned", 0)
+
+        def run_comparison_snapshot():
+            if not self.vs_cpu:
+                return
+            for s_name in solver_names:
+                solver_obj = comparison_solvers[s_name]
+                proposed_move = solver_obj.get_move(board, is_hint=False)
+                update_solver_stats(s_name, solver_obj, proposed_move)
+
+        def format_metric_value(solver_name, metric_key):
+            value = solver_stats[solver_name][metric_key]
+            if value is None:
+                return "—"
+            return str(value)
+
+        def draw_stats_overlay():
+            if not show_stats_overlay or not self.vs_cpu:
+                return
+
+            dim = pygame.Surface((game_w, game_h), pygame.SRCALPHA)
+            dim.fill((0, 0, 0, 170))
+            self.screen.blit(dim, (0, 0))
+
+            panel_rect, close_rect = get_stats_overlay_geometry()
+            pygame.draw.rect(self.screen, (24, 24, 32), panel_rect, border_radius=14)
+            pygame.draw.rect(self.screen, C_ACCENT, panel_rect, 2, border_radius=14)
+
+            title = font_stats_hdr.render("Algorithm Performance Stats", True, C_TEXT_MAIN)
+            self.screen.blit(title, (panel_rect.x + 24, panel_rect.y + 18))
+
+            pygame.draw.rect(self.screen, (48, 48, 60), close_rect, border_radius=8)
+            pygame.draw.rect(self.screen, C_ACCENT, close_rect, 1, border_radius=8)
+            close_txt = self.font.render("✕ CLOSE", True, C_TEXT_MAIN)
+            self.screen.blit(close_txt, close_txt.get_rect(center=close_rect.center))
+
+            table_left = panel_rect.x + 24
+            table_top = panel_rect.y + 78
+            table_w = panel_rect.width - 48
+            table_h = panel_rect.height - 102
+            metric_col_w = 220
+            solver_col_w = (table_w - metric_col_w) // 4
+            row_h = table_h // (len(metric_order) + 1)
+
+            header_bg = pygame.Rect(table_left, table_top, table_w, row_h)
+            pygame.draw.rect(self.screen, (40, 40, 52), header_bg)
+
+            active_solver = self.ai_algorithm
+            metric_header = font_stats_col.render("Metric", True, C_TEXT_MAIN)
+            self.screen.blit(metric_header, (table_left + 10, table_top + 6))
+
+            for i, s_name in enumerate(solver_names):
+                col_x = table_left + metric_col_w + i * solver_col_w
+                col_rect = pygame.Rect(col_x, table_top, solver_col_w, table_h)
+                if s_name == active_solver:
+                    pygame.draw.rect(self.screen, C_ACCENT, col_rect, 2, border_radius=6)
+                header_label = f"{'★ ' if s_name == active_solver else ''}{s_name}"
+                hdr = font_stats_col.render(header_label, True, C_TEXT_MAIN)
+                self.screen.blit(hdr, (col_x + 8, table_top + 6))
+
+            for row_idx, m_key in enumerate(metric_order, start=1):
+                y = table_top + row_idx * row_h
+                pygame.draw.line(self.screen, (60, 60, 72), (table_left, y), (table_left + table_w, y), 1)
+                label = font_stats.render(metric_labels[m_key], True, (190, 190, 200))
+                self.screen.blit(label, (table_left + 10, y + 6))
+                for i, s_name in enumerate(solver_names):
+                    col_x = table_left + metric_col_w + i * solver_col_w
+                    value_txt = font_stats.render(format_metric_value(s_name, m_key), True, C_TEXT_MAIN)
+                    self.screen.blit(value_txt, (col_x + 10, y + 6))
 
         # --- HELPER: Get Frontier Cells (for visualization) ---
         def get_frontier(board_obj):
@@ -466,6 +698,8 @@ class App:
             if show_undo_btn:
                 btn_undo.draw(self.screen, self.font)
             btn_hint.draw(self.screen, self.font)
+            if self.vs_cpu:
+                btn_stats.draw(self.screen, self.font)
             btn_save.draw(self.screen, self.font)
 
         # --- FLASH EFFECT FUNCTION ---
@@ -499,13 +733,13 @@ class App:
 
         def save_logs_to_file():
             if not move_log: return
-            log_dir = r"D:\Mines_DAA\Minesweeper_V3.0\Game_logs"
-            if not os.path.exists(log_dir):
-                try: os.makedirs(log_dir)
-                except OSError as e: print(f"Error creating log directory: {e}"); return
+            try:
+                os.makedirs(self.logs_dir, exist_ok=True)
+            except OSError as e:
+                print(f"Warning: could not create log directory: {e}")
+                return
 
-            filename = "all_game_logs.txt"
-            filepath = os.path.join(log_dir, filename)
+            filepath = self.log_file_path
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             new_block = []
@@ -539,8 +773,7 @@ class App:
                         board.grid[r][c].is_revealed = True
 
         def add_points(actor, points):
-            if points > 1: return 
-            else: scores[actor]['RS'] += points
+            scores[actor]['RS'] += points
 
         def check_victory():
             if board.game_over: return
@@ -593,12 +826,20 @@ class App:
                 
             btn_undo = Button(game_w - 230, game_h - 50, 100, 30, "UNDO", color=C_PANEL)
             btn_hint = Button(game_w - 230, game_h - 90, 100, 30, "HINT", color=(100, 100, 120))
+            btn_stats = Button(game_w - 230, game_h - 170, 100, 30, "📊 STATS", color=(70, 70, 110))
             btn_save = Button(game_w - 120, game_h - 130, 100, 30, "SAVE LOG", color=(50, 100, 50))
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     save_logs_to_file() 
                     pygame.quit(); sys.exit()
+
+                if show_stats_overlay:
+                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                        panel_rect, close_rect = get_stats_overlay_geometry()
+                        if close_rect.collidepoint(event.pos) or not panel_rect.collidepoint(event.pos):
+                            show_stats_overlay = False
+                    continue
                 
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     handle_rect = pygame.Rect(MARGIN + grid_px, MARGIN + grid_px, 25, 25)
@@ -640,6 +881,8 @@ class App:
                             
                         move_log = [] 
                         ai.log("Game Reset.")
+                        solver_stats = init_solver_stats()
+                        show_stats_overlay = False
                         game_started = False
                         start_ticks = 0
                         elapsed_time = 0
@@ -658,6 +901,9 @@ class App:
                           ai.log("Hint: Logic found.")
                       else:
                           ai.log("Hint: No strict logic found.")
+
+                if self.vs_cpu and btn_stats.is_clicked(event):
+                    show_stats_overlay = True
 
                 if event.type == pygame.MOUSEBUTTONDOWN and not board.game_over and not is_resizing:
                     mx, my = event.pos
@@ -732,7 +978,7 @@ class App:
                                         ai_timer = 45 
 
             # --- UPDATED AI TURN LOGIC WITH VISUALIZATION ---
-            if self.vs_cpu and turn == "AI" and not board.game_over:
+            if self.vs_cpu and turn == "AI" and not board.game_over and not show_stats_overlay:
                 ai_timer -= 1
                 if ai_timer <= 0:
                     # 1. VISUALIZE CANDIDATES (Thinking Phase - Cyan)
@@ -783,6 +1029,7 @@ class App:
                         
                         log_move("AI", act.capitalize(), r, c, res_str, ai_reason)
                         check_victory()
+                        run_comparison_snapshot()
 
                     turn = "Human"
 
@@ -791,5 +1038,6 @@ class App:
 
             # Standard draw call (no highlights)
             draw_game(time_str, timer_color, show_undo)
+            draw_stats_overlay()
             pygame.display.flip()
             self.clock.tick(60)

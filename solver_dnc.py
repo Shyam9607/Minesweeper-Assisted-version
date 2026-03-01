@@ -1,4 +1,5 @@
 import random
+from collections import deque
 
 class DNCSolver:
     def __init__(self):
@@ -45,10 +46,10 @@ class DNCSolver:
         for cell in frontier:
             if cell in visited: continue
             cluster = []
-            queue = [cell]
+            queue = deque([cell])
             visited.add(cell)
             while queue:
-                current = queue.pop(0)
+                current = queue.popleft()
                 cluster.append(current)
                 # Cells are 'connected' if they share a hidden neighbor
                 current_hidden = board.get_hidden_neighbors(current)
