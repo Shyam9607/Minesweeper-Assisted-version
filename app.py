@@ -37,6 +37,7 @@ class App:
         self.mode = "Menu" 
         self.vs_cpu = False
         self.ai_algorithm = "Greedy"
+        self.auto_solve_on = False
         self.cell_size = CELL_SIZE 
 
         # Resolve all file paths relative to this script directory.
@@ -153,10 +154,11 @@ class App:
                 col = C_ACCENT if self.ai_algorithm == a else C_PANEL
                 btns_ai.append(Button(200 + i*130, 400, 100, 40, a, color=col))
 
-        # 4. Moved Start Button down slightly to make room
-        btn_start = Button(300, 500, 200, 60, "START GAME", color=C_FLAG)
-        btn_clear_log = Button(40, 520, 140, 40, "CLEAR LOGS", color=(180, 50, 50))
-        btn_back = Button(620, 520, 140, 40, "BACK", color=C_PANEL)
+        # 4. Action Buttons
+        btn_start = Button(420, 505, 200, 55, "START GAME", color=C_FLAG)
+        btn_auto_solve = Button(180, 505, 200, 55, "AUTO SOLVE", color=(138, 43, 226))
+        btn_clear_log = Button(40, 570, 140, 30, "CLEAR LOGS", color=(180, 50, 50))
+        btn_back = Button(620, 570, 140, 30, "BACK", color=C_PANEL)
 
         self.screen.fill((0,0,0))
         pygame.display.flip()
@@ -184,14 +186,16 @@ class App:
                 self.screen.blit(lbl_ai, (80, 410))
                 for b in btns_ai: b.draw(self.screen, self.font)
 
+            # Mines count centered above the action buttons
+            info = f"Mines: {self.calc_mines()}"
+            info_surf = self.font.render(info, True, (200, 200, 200)) 
+            info_rect = info_surf.get_rect(center=(400, 480))
+            self.screen.blit(info_surf, info_rect) 
+
+            btn_auto_solve.draw(self.screen, self.font)
             btn_start.draw(self.screen, self.font)
             btn_clear_log.draw(self.screen, self.font)
             btn_back.draw(self.screen, self.font)
-            
-            # FIXED OVERLAP: Moved the "Mines" text down so it doesn't block the D&C button
-            info = f"Mines: {self.calc_mines()}"
-            info_surf = self.font.render(info, True, (200, 200, 200)) 
-            self.screen.blit(info_surf, (350, 465)) 
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -215,6 +219,13 @@ class App:
                             for k, bx in enumerate(btns_ai): bx.color = C_ACCENT if k == i else C_PANEL
 
                 if btn_start.is_clicked(event):
+                    self.auto_solve_on = False
+                    self.fade_transition()
+                    self.mode = "Game"
+                    return
+
+                if btn_auto_solve.is_clicked(event):
+                    self.auto_solve_on = True
                     self.fade_transition()
                     self.mode = "Game"
                     return
@@ -287,6 +298,13 @@ class App:
 
         move_log = []
         show_stats_overlay = False
+
+        # --- AUTO SOLVER STATE ---
+        auto_solving = self.auto_solve_on
+        auto_solver = BacktrackingSolver()
+        auto_timer = 0
+        if auto_solving:
+            auto_solver.log("AutoSolver started!")
 
         # --- Solver Comparison Stats ---
         solver_names = ["Greedy", "D&C", "DP", "BT"]
@@ -803,6 +821,10 @@ class App:
                 if h_score > a_score: board.winner = "Human"
                 elif a_score > h_score: board.winner = "AI"
                 else: board.winner = "Draw"
+
+                # Override winner for AutoSolver mode
+                if auto_solving:
+                    board.winner = "AutoSolver"
                 
                 ai.log(f"Board Cleared! Winner: {board.winner}")
                 log_move("System", "Game Over", -1, -1, "Board Cleared", f"Winner: {board.winner}")
@@ -887,6 +909,15 @@ class App:
                         start_ticks = 0
                         elapsed_time = 0
                         total_moves = 0
+                        # Restart auto-solving if in auto-solve mode
+                        if self.auto_solve_on:
+                            auto_solving = True
+                            auto_solver = BacktrackingSolver()
+                            auto_timer = 0
+                            auto_solver.log("AutoSolver restarted!")
+                        else:
+                            auto_solving = False
+
 
                 if show_undo and btn_undo.is_clicked(event):
                     if turn == "Human" and board.undo():
@@ -1032,6 +1063,85 @@ class App:
                         run_comparison_snapshot()
 
                     turn = "Human"
+
+            # --- AUTO SOLVER LOOP ---
+            if auto_solving and not board.game_over:
+                auto_timer -= 1
+                if auto_timer <= 0:
+                    auto_timer = 10
+
+                    # First click: reveal center cell to start the game
+                    if board.first_click:
+                        sr, sc = self.grid_size // 2, self.grid_size // 2
+                        res = board.reveal(sr, sc)
+                        if not game_started:
+                            game_started = True
+                            start_ticks = pygame.time.get_ticks()
+                        total_moves += 1
+                        if res != -999:
+                            auto_solver.log(f"Auto: First click ({sr},{sc})")
+                            log_move("AutoSolver", "Reveal", sr, sc, f"Safe ({res} cells)", "First Click")
+                        check_victory()
+                        if board.game_over:
+                            board.winner = "AutoSolver"
+                            auto_solving = False
+                    else:
+                        # 1. VISUALIZE CANDIDATES (Thinking Phase)
+                        frontier = get_frontier(board)
+                        if frontier:
+                            draw_game(time_str, timer_color, show_undo, highlights=frontier, highlight_col=C_THINKING)
+                            pygame.display.flip()
+                            pygame.time.delay(130)
+
+                        # 2. Get move from BacktrackingSolver
+                        move = auto_solver.get_move(board)
+                        if move:
+                            r, c, act = move
+
+                            # 3. VISUALIZE CHOICE (Choosing Phase)
+                            draw_game(time_str, timer_color, show_undo, highlights=[(r,c)], highlight_col=C_CHOOSING)
+                            pygame.display.flip()
+                            pygame.time.delay(130)
+
+                            # 4. EXECUTE MOVE
+                            last_ai_move = (r, c)
+                            ai_moves.add((r, c))
+                            total_moves += 1
+
+                            auto_reason = auto_solver.logs[-1] if auto_solver.logs else "Unknown"
+                            res_str = ""
+
+                            if act == 'reveal':
+                                res = board.reveal(r, c)
+                                if res == -999:
+                                    flash_board(time_str, timer_color)
+                                    auto_solver.log("Auto: Hit Mine! Game Over.")
+                                    board.winner = "AutoSolver"
+                                    board.game_over = True
+                                    res_str = "Hit Mine"
+                                    reveal_all_mines()
+                                    auto_solving = False
+                                else:
+                                    add_points("Human", res)
+                                    res_str = f"Safe ({res} cells)"
+                            elif act == 'flag':
+                                board.toggle_flag(r, c)
+                                if board.grid[r][c].is_mine:
+                                    scores['Human']['CF'] += 1
+                                else:
+                                    scores['Human']['WF'] += 1
+                                res_str = "Flag Placed"
+
+                            log_move("AutoSolver", act.capitalize(), r, c, res_str, auto_reason)
+                            check_victory()
+
+                            if board.game_over:
+                                board.winner = "AutoSolver"
+                                auto_solving = False
+                                auto_solver.log("Auto: Board Solved!")
+                        else:
+                            auto_solving = False
+                            auto_solver.log("Auto: No moves left.")
 
             if game_started and not board.game_over:
                 elapsed_time = (pygame.time.get_ticks() - start_ticks) // 1000
