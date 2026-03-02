@@ -140,3 +140,4 @@ class Board:
                 if cell.is_revealed and cell.number > 0:
                     nodes.append(cell)
         return nodes
+
