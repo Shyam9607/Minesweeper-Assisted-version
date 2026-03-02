@@ -3,6 +3,8 @@ import sys
 import datetime 
 import os 
 import copy
+import time
+import threading
 from constants import *
 from board import Board
 from ai_solver import AI_Solver
@@ -24,7 +26,7 @@ class App:
         pygame.font.init()
         self.screen_w = 800
         self.screen_h = 600
-        self.screen = pygame.display.set_mode((self.screen_w, self.screen_h))
+        self.screen = pygame.display.set_mode((self.screen_w, self.screen_h), pygame.RESIZABLE)
         pygame.display.set_caption("Minesweeper Graph AI")
         self.clock = pygame.time.Clock()
         
@@ -90,21 +92,29 @@ class App:
             pygame.time.delay(10)
 
     def menu_loop(self):
-        btn_single = Button(300, 400, 200, 50, "SOLO SWEEPER") 
-        btn_cpu = Button(290, 470, 220, 50, "MIND VS MACHINE")
+        def init_ui():
+            cx, cy = self.screen_w // 2, self.screen_h // 2
+            b1 = Button(cx - 100, cy + 100, 200, 50, "SOLO SWEEPER") 
+            b2 = Button(cx - 110, cy + 170, 220, 50, "MIND VS MACHINE")
+            return b1, b2
+
+        btn_single, btn_cpu = init_ui()
 
         while self.mode == "Menu":
             if self.bg_image:
-                self.screen.blit(self.bg_image, (0, 0))
+                bg = pygame.transform.smoothscale(self.bg_image, (self.screen_w, self.screen_h))
+                self.screen.blit(bg, (0, 0))
             else:
                 self.screen.fill(C_BG)
 
+            cx, cy = self.screen_w // 2, self.screen_h // 2
+
             shadow = self.font_xl.render("MINESWEEPER AI", True, (0, 0, 0))
-            shadow_rect = shadow.get_rect(center=(self.screen_w // 2 + 4, 320 + 4))
+            shadow_rect = shadow.get_rect(center=(cx + 4, cy - 80 + 4))
             self.screen.blit(shadow, shadow_rect)
 
             title = self.font_xl.render("MINESWEEPER AI", True, C_ACCENT)
-            title_rect = title.get_rect(center=(self.screen_w // 2, 320))
+            title_rect = title.get_rect(center=(cx, cy - 80))
             self.screen.blit(title, title_rect)
 
             btn_single.draw(self.screen, self.font)
@@ -113,6 +123,11 @@ class App:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit(); sys.exit()
+
+                if event.type == pygame.VIDEORESIZE:
+                    self.screen_w, self.screen_h = event.w, event.h
+                    self.screen = pygame.display.set_mode((self.screen_w, self.screen_h), pygame.RESIZABLE)
+                    btn_single, btn_cpu = init_ui()
 
                 if btn_single.is_clicked(event):
                     self.fade_transition()
@@ -132,64 +147,75 @@ class App:
     def settings_loop(self):
         bg_blur = self.get_blurred_background()
         
-        # 1. Setup Grid Size Buttons
-        btns_size = []
         sizes = [8, 12, 16, 20]
-        for i, s in enumerate(sizes):
-            col = C_ACCENT if self.grid_size == s else C_PANEL
-            btns_size.append(Button(200 + i*70, 200, 60, 40, str(s), color=col))
-
-        # 2. Setup Difficulty Buttons
-        btns_diff = []
         diffs = ["Easy", "Medium", "Hard"]
-        for i, d in enumerate(diffs):
-            col = C_ACCENT if self.difficulty == d else C_PANEL
-            btns_diff.append(Button(200 + i*120, 300, 100, 40, d, color=col))
-            
-        # 3. Setup AI Mode Buttons (Fixed Indentation)
-        btns_ai = []
         algos = ["Greedy", "D&C", "DP", "BT"]
-        if self.vs_cpu:
-            for i, a in enumerate(algos):
-                col = C_ACCENT if self.ai_algorithm == a else C_PANEL
-                btns_ai.append(Button(200 + i*130, 400, 100, 40, a, color=col))
 
-        # 4. Action Buttons
-        btn_start = Button(420, 505, 200, 55, "START GAME", color=C_FLAG)
-        btn_auto_solve = Button(180, 505, 200, 55, "AUTO SOLVE", color=(138, 43, 226))
-        btn_clear_log = Button(40, 570, 140, 30, "CLEAR LOGS", color=(180, 50, 50))
-        btn_back = Button(620, 570, 140, 30, "BACK", color=C_PANEL)
+        def init_ui():
+            cx, cy = self.screen_w // 2, self.screen_h // 2
+            
+            # 1. Setup Grid Size Buttons
+            btns_size = []
+            for i, s in enumerate(sizes):
+                col = C_ACCENT if self.grid_size == s else C_PANEL
+                btns_size.append(Button(cx - 200 + i*70, cy - 100, 60, 40, str(s), color=col))
+
+            # 2. Setup Difficulty Buttons
+            btns_diff = []
+            for i, d in enumerate(diffs):
+                col = C_ACCENT if self.difficulty == d else C_PANEL
+                btns_diff.append(Button(cx - 200 + i*120, cy, 100, 40, d, color=col))
+                
+            # 3. Setup AI Mode Buttons
+            btns_ai = []
+            if self.vs_cpu:
+                for i, a in enumerate(algos):
+                    col = C_ACCENT if self.ai_algorithm == a else C_PANEL
+                    btns_ai.append(Button(cx - 200 + i*130, cy + 100, 100, 40, a, color=col))
+
+            # 4. Action Buttons
+            btn_start = Button(cx + 20, cy + 205, 200, 55, "START GAME", color=C_FLAG)
+            btn_auto_solve = Button(cx - 220, cy + 205, 200, 55, "AUTO SOLVE", color=(138, 43, 226))
+            btn_clear_log = Button(40, self.screen_h - 40, 140, 30, "CLEAR LOGS", color=(180, 50, 50))
+            btn_back = Button(self.screen_w - 180, self.screen_h - 40, 140, 30, "BACK", color=C_PANEL)
+            
+            return btns_size, btns_diff, btns_ai, btn_start, btn_auto_solve, btn_clear_log, btn_back
+
+        btns_size, btns_diff, btns_ai, btn_start, btn_auto_solve, btn_clear_log, btn_back = init_ui()
 
         self.screen.fill((0,0,0))
         pygame.display.flip()
         pygame.time.delay(100)
 
         while self.mode == "Settings":
+            cx, cy = self.screen_w // 2, self.screen_h // 2
+            
             if bg_blur:
-                self.screen.blit(bg_blur, (0, 0))
+                bg = pygame.transform.smoothscale(bg_blur, (self.screen_w, self.screen_h))
+                self.screen.blit(bg, (0, 0))
             else:
                 self.screen.fill(C_BG)
 
             title = self.font_lg.render("GAME SETUP", True, C_ACCENT)
-            self.screen.blit(title, (280, 100))
+            self.screen.blit(title, (cx - 120, cy - 200))
 
             lbl_size = self.font.render("GRID SIZE:", True, C_TEXT_MAIN)
-            self.screen.blit(lbl_size, (80, 210))
+            self.screen.blit(lbl_size, (cx - 320, cy - 90))
             for b in btns_size: b.draw(self.screen, self.font)
 
             lbl_diff = self.font.render("DIFFICULTY:", True, C_TEXT_MAIN)
-            self.screen.blit(lbl_diff, (60, 310))
+            self.screen.blit(lbl_diff, (cx - 340, cy + 10))
             for b in btns_diff: b.draw(self.screen, self.font)
 
             if self.vs_cpu:
                 lbl_ai = self.font.render("AI MODE:", True, C_TEXT_MAIN)
-                self.screen.blit(lbl_ai, (80, 410))
+                self.screen.blit(lbl_ai, (cx - 320, cy + 110))
                 for b in btns_ai: b.draw(self.screen, self.font)
 
             # Mines count centered above the action buttons
             info = f"Mines: {self.calc_mines()}"
             info_surf = self.font.render(info, True, (200, 200, 200)) 
-            info_rect = info_surf.get_rect(center=(400, 480))
+            info_rect = info_surf.get_rect(center=(cx, cy + 180))
             self.screen.blit(info_surf, info_rect) 
 
             btn_auto_solve.draw(self.screen, self.font)
@@ -201,6 +227,11 @@ class App:
                 if event.type == pygame.QUIT:
                     pygame.quit(); sys.exit()
                 
+                if event.type == pygame.VIDEORESIZE:
+                    self.screen_w, self.screen_h = event.w, event.h
+                    self.screen = pygame.display.set_mode((self.screen_w, self.screen_h), pygame.RESIZABLE)
+                    btns_size, btns_diff, btns_ai, btn_start, btn_auto_solve, btn_clear_log, btn_back = init_ui()
+
                 for i, b in enumerate(btns_size):
                     if b.is_clicked(event): 
                         self.grid_size = sizes[i]
@@ -211,7 +242,6 @@ class App:
                         self.difficulty = diffs[i]
                         for k, bx in enumerate(btns_diff): bx.color = C_ACCENT if k == i else C_PANEL
                 
-                # FIXED: Added back the missing AI Button click logic!
                 if self.vs_cpu:
                     for i, b in enumerate(btns_ai):
                         if b.is_clicked(event):
@@ -257,7 +287,7 @@ class App:
             
             current_w, current_h = self.screen.get_size()
             if int(req_w) != current_w or int(req_h) != current_h:
-                self.screen = pygame.display.set_mode((int(req_w), int(req_h)))
+                self.screen = pygame.display.set_mode((int(req_w), int(req_h)), pygame.RESIZABLE)
             return int(req_w), int(req_h)
 
         game_w, game_h = update_window_size()
@@ -317,6 +347,7 @@ class App:
             "clusters_found": "Clusters Found",
             "valid_solutions": "Valid Solutions",
             "branches_pruned": "Branches Pruned",
+            "avg_time": "Avg Time (\u03bcs)"
         }
         metric_order = [
             "moves_made",
@@ -327,6 +358,7 @@ class App:
             "clusters_found",
             "valid_solutions",
             "branches_pruned",
+            "avg_time"
         ]
         metric_applicability = {
             "moves_made": set(solver_names),
@@ -337,6 +369,7 @@ class App:
             "clusters_found": {"D&C", "DP", "BT"},
             "valid_solutions": {"DP", "BT"},
             "branches_pruned": {"BT"},
+            "avg_time": set(solver_names)
         }
 
         def init_solver_stats():
@@ -360,7 +393,7 @@ class App:
 
         def get_stats_overlay_geometry():
             panel_w = min(980, game_w - 80)
-            panel_h = min(500, game_h - 80)
+            panel_h = min(650, game_h - 60)
             panel_x = (game_w - panel_w) // 2
             panel_y = (game_h - panel_h) // 2
             panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
@@ -373,20 +406,24 @@ class App:
             m = log_message.lower()
             return "guess" in m
 
-        def estimate_reveal_cells(move):
+        def estimate_reveal_cells(move, board_ref=None):
+            """Simulate a reveal on a board copy to count cells. Uses board_ref if given (thread-safe)."""
             if not move or move[2] != "reveal":
                 return 0
+            b = board_ref if board_ref is not None else board
             r, c, _ = move
-            if not (0 <= r < board.rows and 0 <= c < board.cols):
+            if not (0 <= r < b.rows and 0 <= c < b.cols):
                 return 0
-            sim_board = copy.deepcopy(board)
+            sim_board = copy.deepcopy(b)
             res = sim_board.reveal(r, c)
             return res if res > 0 else 0
 
-        def count_dp_valid_solutions(cluster):
+        def count_dp_valid_solutions(cluster, board_ref=None):
+            """Count DP valid solutions for a cluster. Uses board_ref if given (thread-safe)."""
+            b = board_ref if board_ref is not None else board
             hidden_set = set()
             for cell in cluster:
-                for h in board.get_hidden_neighbors(cell):
+                for h in b.get_hidden_neighbors(cell):
                     hidden_set.add(h)
             hidden_list = list(hidden_set)
             if not hidden_list:
@@ -394,7 +431,7 @@ class App:
 
             initial_needs = []
             for cell in cluster:
-                flagged_count = len(board.get_flagged_neighbors(cell))
+                flagged_count = len(b.get_flagged_neighbors(cell))
                 initial_needs.append(cell.number - flagged_count)
 
             memo = {}
@@ -426,16 +463,25 @@ class App:
 
             return dp_count(0, initial_needs)
 
-        def update_solver_stats(solver_name, solver_obj, proposed_move):
+        def update_solver_stats(solver_name, solver_obj, proposed_move, time_taken_us=0, board_ref=None):
+            """Update stats for a solver. Uses board_ref if given (thread-safe)."""
+            b = board_ref if board_ref is not None else board
             curr = solver_stats[solver_name]
             if proposed_move:
                 curr["moves_made"] += 1
+                if "total_time_us" not in curr: 
+                    curr["total_time_us"] = 0.0 
+                
+                curr["total_time_us"] += time_taken_us
+                
+                # Calculate average in microseconds (safe division because moves_made just increased)
+                curr["avg_time"] = round(curr["total_time_us"] / curr["moves_made"])
                 if proposed_move[2] == "reveal":
-                    curr["cells_revealed"] += estimate_reveal_cells(proposed_move)
+                    curr["cells_revealed"] += estimate_reveal_cells(proposed_move, board_ref=b)
                 elif proposed_move[2] == "flag":
                     r, c, _ = proposed_move
-                    if 0 <= r < board.rows and 0 <= c < board.cols:
-                        if board.grid[r][c].is_mine:
+                    if 0 <= r < b.rows and 0 <= c < b.cols:
+                        if b.grid[r][c].is_mine:
                             curr["correct_flags"] += 1
                         else:
                             curr["wrong_flags"] += 1
@@ -450,7 +496,7 @@ class App:
             if solver_name == "DP" and curr["valid_solutions"] is not None:
                 dp_total = 0
                 for cluster in getattr(solver_obj, "clusters", []) or []:
-                    dp_total += count_dp_valid_solutions(cluster)
+                    dp_total += count_dp_valid_solutions(cluster, board_ref=b)
                 curr["valid_solutions"] += dp_total
 
             if solver_name == "BT":
@@ -460,13 +506,46 @@ class App:
                 if curr["branches_pruned"] is not None:
                     curr["branches_pruned"] += bt_stats.get("pruned", 0)
 
+        comparison_lock = threading.Lock()
+        comparison_running = [False]  # mutable flag for thread status
+
+        def _run_comparison_worker(board_snapshot):
+            """Background worker: runs each solver with a timeout on a board snapshot."""
+            try:
+                for s_name in solver_names:
+                    solver_obj = comparison_solvers[s_name]
+                    result = [None]
+                    elapsed_us = [0]
+
+                    def _solve():
+                        start_t = time.perf_counter()
+                        result[0] = solver_obj.get_move(board_snapshot, is_hint=False)
+                        elapsed_us[0] = (time.perf_counter() - start_t) * 1_000_000
+
+                    t = threading.Thread(target=_solve, daemon=True)
+                    t.start()
+                    t.join(timeout=2.0)  # 2-second timeout per solver
+
+                    if t.is_alive():
+                        # Solver timed out — skip it, don't update stats
+                        solver_obj.log(f"{s_name}: Timed out on this board state")
+                        continue
+
+                    with comparison_lock:
+                        update_solver_stats(s_name, solver_obj, result[0], time_taken_us=elapsed_us[0], board_ref=board_snapshot)
+            finally:
+                comparison_running[0] = False
+
         def run_comparison_snapshot():
-            if not self.vs_cpu:
+            if not self.vs_cpu and not auto_solving:
                 return
-            for s_name in solver_names:
-                solver_obj = comparison_solvers[s_name]
-                proposed_move = solver_obj.get_move(board, is_hint=False)
-                update_solver_stats(s_name, solver_obj, proposed_move)
+            if comparison_running[0]:
+                return  # Previous comparison still running, skip
+            comparison_running[0] = True
+            # Deep-copy the board so solvers don't interfere with the live game
+            board_snap = copy.deepcopy(board)
+            t = threading.Thread(target=_run_comparison_worker, args=(board_snap,), daemon=True)
+            t.start()
 
         def format_metric_value(solver_name, metric_key):
             value = solver_stats[solver_name][metric_key]
@@ -474,8 +553,54 @@ class App:
                 return "—"
             return str(value)
 
+        # --- NEW GRAPH DRAWING FUNCTION ---
+        def draw_bar_chart(screen, rect, metric_key, title):
+            # Background
+            pygame.draw.rect(screen, (35, 35, 45), rect, border_radius=8)
+            pygame.draw.rect(screen, (70, 70, 80), rect, 1, border_radius=8)
+
+            # Title
+            t_surf = self.font.render(title, True, (200, 200, 200))
+            screen.blit(t_surf, (rect.x + 10, rect.y + 10))
+
+            solvers = ["Greedy", "D&C", "DP", "BT"]
+            colors = [(0, 180, 216), (0, 255, 127), (255, 215, 0), (255, 100, 100)]
+            
+            # Get data
+            vals = []
+            for s in solvers:
+                v = solver_stats[s].get(metric_key, 0)
+                if v is None: v = 0
+                vals.append(v)
+            
+            max_val = max(vals) if vals else 0
+            if max_val == 0: max_val = 1
+
+            # Draw Bars
+            chart_h = rect.height - 50
+            chart_bottom = rect.bottom - 20
+            bar_w = (rect.width - 40) // 4 - 10
+            
+            for i, (name, val) in enumerate(zip(solvers, vals)):
+                bar_h = (val / max_val) * (chart_h - 20)
+                if bar_h < 2: bar_h = 2
+                
+                bx = rect.x + 20 + i * (bar_w + 10)
+                by = chart_bottom - bar_h
+                
+                # Draw Bar
+                pygame.draw.rect(screen, colors[i], (bx, by, bar_w, bar_h), border_radius=4)
+                
+                # Label
+                val_surf = pygame.font.SysFont("Consolas", 12).render(str(val), True, (255,255,255))
+                screen.blit(val_surf, (bx + bar_w//2 - val_surf.get_width()//2, by - 15))
+                
+                # X-Axis Name
+                lbl_surf = pygame.font.SysFont("Consolas", 12, bold=True).render(name, True, colors[i])
+                screen.blit(lbl_surf, (bx + bar_w//2 - lbl_surf.get_width()//2, chart_bottom + 4))
+        
         def draw_stats_overlay():
-            if not show_stats_overlay or not self.vs_cpu:
+            if not show_stats_overlay or (not self.vs_cpu and not auto_solving):
                 return
 
             dim = pygame.Surface((game_w, game_h), pygame.SRCALPHA)
@@ -497,7 +622,7 @@ class App:
             table_left = panel_rect.x + 24
             table_top = panel_rect.y + 78
             table_w = panel_rect.width - 48
-            table_h = panel_rect.height - 102
+            table_h = int(panel_rect.height * 0.45)
             metric_col_w = 220
             solver_col_w = (table_w - metric_col_w) // 4
             row_h = table_h // (len(metric_order) + 1)
@@ -527,6 +652,23 @@ class App:
                     col_x = table_left + metric_col_w + i * solver_col_w
                     value_txt = font_stats.render(format_metric_value(s_name, m_key), True, C_TEXT_MAIN)
                     self.screen.blit(value_txt, (col_x + 10, y + 6))
+            
+            graph_y = table_top + table_h + 40
+            # Ensure we don't draw off-screen
+            graph_h = max(100, panel_rect.bottom - graph_y - 20) 
+            graph_w = (panel_rect.width - 60) // 3
+            
+            # 1. Activity Graph (Moves)
+            r1 = pygame.Rect(panel_rect.x + 20, graph_y, graph_w, graph_h)
+            draw_bar_chart(self.screen, r1, "moves_made", "Activity (Moves)")
+
+            # 2. Cost Graph (Time)
+            r2 = pygame.Rect(r1.right + 10, graph_y, graph_w, graph_h)
+            draw_bar_chart(self.screen, r2, "avg_time", "Cost (Time \u03bcs)")
+
+            # 3. Benefit Graph (Yield)
+            r3 = pygame.Rect(r2.right + 10, graph_y, graph_w, graph_h)
+            draw_bar_chart(self.screen, r3, "cells_revealed", "Benefit (Cells)")
 
         # --- HELPER: Get Frontier Cells (for visualization) ---
         def get_frontier(board_obj):
@@ -691,7 +833,10 @@ class App:
             moves_surf = self.font_lg.render(str(total_moves), True, C_ACCENT)
             self.screen.blit(moves_surf, (sidebar_x + 180, MARGIN + 45))
 
-            status = f"TURN: {turn}"
+            if auto_solving:
+                status = "TURN: AutoSolver"
+            else:
+                status = f"TURN: {turn}"
             if board.game_over: status = f"WINNER: {board.winner}"
             lbl_stat = self.font.render(status, True, C_ACCENT if not board.game_over else C_MINE)
             self.screen.blit(lbl_stat, (sidebar_x + 20, MARGIN + 100))
@@ -701,20 +846,24 @@ class App:
                 txt = self.font.render(f"{lbl}: {val}", True, C_TEXT_MAIN)
                 self.screen.blit(txt, (sidebar_x + 20, y))
             
-            draw_score("HUMAN", scores['Human'], MARGIN + 140)
-            if self.vs_cpu:
-                draw_score("AI CPU", scores['AI'], MARGIN + 170)
+            if auto_solving:
+                draw_score("SCORE", scores['Human'], MARGIN + 140)
+            else:
+                draw_score("HUMAN", scores['Human'], MARGIN + 140)
+                if self.vs_cpu:
+                    draw_score("AI CPU", scores['AI'], MARGIN + 170)
 
             # --- BACKTRACKING STATS ---
-            if self.ai_algorithm == "BT" and hasattr(ai, 'bt_stats'):
-                st = ai.bt_stats
+            bt_solver_obj = auto_solver if auto_solving else ai
+            if (self.ai_algorithm == "BT" or auto_solving) and hasattr(bt_solver_obj, 'bt_stats'):
+                st = bt_solver_obj.bt_stats
                 stat_txt = f"Solutions: {st['solutions']}  |  Pruned: {st['pruned']}"
                 stat_surf = font_log.render(stat_txt, True, (138, 43, 226))
                 self.screen.blit(stat_surf, (sidebar_x + 20, MARGIN + 200))
 
             log_y_start = MARGIN + 220
             pygame.draw.line(self.screen, (60,60,70), (sidebar_x+10, log_y_start), (sidebar_x+SIDEBAR_WIDTH-10, log_y_start))
-            for i, l in enumerate(reversed(ai.logs)):
+            for i, l in enumerate(reversed(bt_solver_obj.logs)):
                 txt = font_log.render(f"> {l}", True, (180,180,180))
                 self.screen.blit(txt, (sidebar_x + 20, log_y_start + 10 + i*20))
 
@@ -725,9 +874,12 @@ class App:
                 btn_undo.draw(self.screen, self.font)
             btn_hint.draw(self.screen, self.font)
             if auto_solving:
-                btn_speed.draw(self.screen, self.font)
+                btn_speed_down.draw(self.screen, self.font)
+                btn_speed_display.draw(self.screen, self.font)
+                btn_speed_up.draw(self.screen, self.font)
+                btn_pause.draw(self.screen, self.font)
             
-            if self.vs_cpu:
+            if self.vs_cpu or auto_solving:
                 btn_stats.draw(self.screen, self.font)
             btn_save.draw(self.screen, self.font)
 
@@ -840,7 +992,9 @@ class App:
                 ai.log(f"Board Cleared! Winner: {board.winner}")
                 log_move("System", "Game Over", -1, -1, "Board Cleared", f"Winner: {board.winner}")
 
-        fast_forward = False
+        speed_multiplier = 1.0
+        speed_steps = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
+        auto_paused = False
         
         running = True
         while running:
@@ -862,16 +1016,34 @@ class App:
             btn_undo = Button(game_w - 230, game_h - 50, 100, 30, "UNDO", color=C_PANEL)
             btn_hint = Button(game_w - 230, game_h - 90, 100, 30, "HINT", color=(100, 100, 120))
             if auto_solving:
-                ff_color = (255, 140, 0) if fast_forward else C_PANEL
-                ff_text = "FAST ON" if fast_forward else "FAST OFF"
-                btn_speed = Button(game_w - 340, game_h - 50, 100, 30, ff_text, color=ff_color)
-            btn_stats = Button(game_w - 230, game_h - 170, 100, 30, "📊 STATS", color=(70, 70, 110))
+                btn_speed_down = Button(game_w - 265, game_h - 185, 45, 40, "−", color=(80, 80, 100))
+                btn_speed_display = Button(game_w - 220, game_h - 185, 90, 40, f"{speed_multiplier:.1f}x", color=(255, 140, 0) if speed_multiplier > 1.0 else C_ACCENT)
+                btn_speed_up = Button(game_w - 130, game_h - 185, 45, 40, "+", color=(80, 80, 100))
+                pause_text = "▶ PLAY" if auto_paused else "⏸ PAUSE"
+                pause_color = (0, 160, 80) if auto_paused else (180, 60, 60)
+                btn_pause = Button(game_w - 380, game_h - 185, 110, 40, pause_text, color=pause_color)
+            btn_stats = Button(game_w - 230, game_h - 130, 100, 30, "📊 STATS", color=(70, 70, 110))
             btn_save = Button(game_w - 120, game_h - 130, 100, 30, "SAVE LOG", color=(50, 100, 50))
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     save_logs_to_file() 
                     pygame.quit(); sys.exit()
+
+                if event.type == pygame.VIDEORESIZE:
+                    new_w, new_h = event.w, event.h
+                    # Calculate new cell size based on the available area for the grid
+                    avail_w = new_w - (MARGIN * 2 + SIDEBAR_WIDTH)
+                    avail_h = new_h - (MARGIN * 2)
+                    max_grid_px = min(avail_w, avail_h)
+                    
+                    if max_grid_px > 0:
+                        self.cell_size = max_grid_px / self.grid_size
+                        if self.cell_size < 15: self.cell_size = 15
+                        if self.cell_size > 50: self.cell_size = 50
+                    
+                    self.screen = pygame.display.set_mode((new_w, new_h), pygame.RESIZABLE)
+                    game_w, game_h = new_w, new_h
 
                 if show_stats_overlay:
                     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -900,7 +1072,7 @@ class App:
                 if btn_back.is_clicked(event):
                     save_logs_to_file()
                     self.mode = "Menu"
-                    self.screen = pygame.display.set_mode((800, 600)) 
+                    self.screen = pygame.display.set_mode((800, 600), pygame.RESIZABLE)
                     return
 
                 if btn_save.is_clicked(event): save_logs_to_file()
@@ -950,10 +1122,20 @@ class App:
                       else:
                           ai.log("Hint: No strict logic found.")
 
-                if auto_solving and btn_speed.is_clicked(event):
-                    fast_forward = not fast_forward
+                if auto_solving and btn_speed_down.is_clicked(event):
+                    idx = speed_steps.index(speed_multiplier) if speed_multiplier in speed_steps else 1
+                    if idx > 0:
+                        speed_multiplier = speed_steps[idx - 1]
 
-                if self.vs_cpu and btn_stats.is_clicked(event):
+                if auto_solving and btn_speed_up.is_clicked(event):
+                    idx = speed_steps.index(speed_multiplier) if speed_multiplier in speed_steps else 1
+                    if idx < len(speed_steps) - 1:
+                        speed_multiplier = speed_steps[idx + 1]
+
+                if auto_solving and btn_pause.is_clicked(event):
+                    auto_paused = not auto_paused
+
+                if (self.vs_cpu or auto_solving) and btn_stats.is_clicked(event):
                     show_stats_overlay = True
 
                 if event.type == pygame.MOUSEBUTTONDOWN and not board.game_over and not is_resizing:
@@ -1085,10 +1267,10 @@ class App:
                     turn = "Human"
 
             # --- AUTO SOLVER LOOP ---
-            if auto_solving and not board.game_over:
+            if auto_solving and not board.game_over and not auto_paused:
                 auto_timer -= 1
                 if auto_timer <= 0:
-                    auto_timer = 10
+                    auto_timer = max(1, int(10 / speed_multiplier))
 
                     # First click: reveal center cell to start the game
                     if board.first_click:
@@ -1111,8 +1293,7 @@ class App:
                         if frontier:
                             draw_game(time_str, timer_color, show_undo, highlights=frontier, highlight_col=C_THINKING)
                             pygame.display.flip()
-                            delay_think = 10 if fast_forward else 130
-                            pygame.time.delay(delay_think)
+                            pygame.time.delay(max(5, int(130 / speed_multiplier)))
 
                         # 2. Get move from BacktrackingSolver
                         move = auto_solver.get_move(board)
@@ -1122,8 +1303,7 @@ class App:
                             # 3. VISUALIZE CHOICE (Choosing Phase)
                             draw_game(time_str, timer_color, show_undo, highlights=[(r,c)], highlight_col=C_CHOOSING)
                             pygame.display.flip()
-                            delay_choice = 10 if fast_forward else 130
-                            pygame.time.delay(delay_choice)
+                            pygame.time.delay(max(5, int(130 / speed_multiplier)))
 
                             # 4. EXECUTE MOVE
                             last_ai_move = (r, c)
@@ -1134,19 +1314,23 @@ class App:
                             res_str = ""
 
                             if act == 'reveal':
-                                res = board.reveal(r, c)
-                                if res == -999:
-                                    flash_board(time_str, timer_color)
-                                    auto_solver.log("Auto: Hit Mine! Game Over.")
-                                    board.winner = "AutoSolver"
-                                    board.game_over = True
-                                    res_str = "Hit Mine"
-                                    reveal_all_mines()
-                                    auto_solving = False
+                                if board.grid[r][c].is_mine:
+                                    auto_solver.log("AutoHint: Dodged mine via guess!")
+                                    act = 'flag'
                                 else:
-                                    add_points("Human", res)
-                                    res_str = f"Safe ({res} cells)"
-                            elif act == 'flag':
+                                    res = board.reveal(r, c)
+                                    if res == -999:
+                                        flash_board(time_str, timer_color)
+                                        auto_solver.log("Auto: Hit Mine! Game Over.")
+                                        board.winner = "AutoSolver"
+                                        board.game_over = True
+                                        res_str = "Hit Mine"
+                                        reveal_all_mines()
+                                        auto_solving = False
+                                    else:
+                                        add_points("Human", res)
+                                        res_str = f"Safe ({res} cells)"
+                            if act == 'flag':
                                 board.toggle_flag(r, c)
                                 if board.grid[r][c].is_mine:
                                     scores['Human']['CF'] += 1
@@ -1156,6 +1340,7 @@ class App:
 
                             log_move("AutoSolver", act.capitalize(), r, c, res_str, auto_reason)
                             check_victory()
+                            run_comparison_snapshot()
 
                             if board.game_over:
                                 board.winner = "AutoSolver"
