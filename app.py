@@ -606,24 +606,31 @@ class App:
                         pygame.draw.rect(self.screen, (50, 100, 255), rect, 3, border_radius=4)
 
             # --- VISUALIZE CLUSTERS ---
-            if self.vs_cpu and hasattr(ai, 'clusters') and ai.clusters:
-                if self.ai_algorithm == "BT":
+            vis_solver = auto_solver if auto_solving else (ai if self.vs_cpu else None)
+            vis_algo = "BT" if auto_solving else self.ai_algorithm
+
+            if vis_solver and hasattr(vis_solver, 'clusters') and vis_solver.clusters:
+                if vis_algo == "BT":
                     # BACKTRACKING: Colored overlay on analyzed cells
-                    bt_palette = [
-                        (138, 43, 226), (255, 20, 147), (0, 206, 209),
-                        (255, 165, 0), (50, 205, 50), (255, 215, 0),
-                    ]
-                    bt_names = ["Violet", "Pink", "Cyan", "Orange", "Green", "Gold"]
                     active_clusters = []
-                    for ci, cluster in enumerate(ai.clusters):
-                        bcolor = bt_palette[ci % len(bt_palette)]
+                    for ci, cluster in enumerate(vis_solver.clusters):
                         # Collect hidden cells for this cluster
                         cluster_hidden = set()
                         for cl_cell in cluster:
                             for h in board.get_hidden_neighbors(cl_cell):
                                 cluster_hidden.add(h)
-                        if cluster_hidden:
-                            active_clusters.append((ci, bcolor))
+                        
+                        if not cluster_hidden:
+                            continue
+                            
+                        # Generate a unique, stable color per cluster using Golden Angle
+                        import colorsys
+                        hue = ((ci * 137.508) % 360) / 360.0
+                        r, g, b = colorsys.hsv_to_rgb(hue, 0.8, 0.9)
+                        bcolor = (int(r * 255), int(g * 255), int(b * 255))
+                        
+                        active_clusters.append((ci, bcolor))
+                        
                         # Semi-transparent overlay on hidden cells
                         overlay_surf = pygame.Surface((draw_cell_size-1, draw_cell_size-1), pygame.SRCALPHA)
                         overlay_surf.fill((*bcolor, 30))
@@ -633,18 +640,19 @@ class App:
                             self.screen.blit(overlay_surf, (hx, hy))
                             h_rect = pygame.Rect(hx, hy, draw_cell_size-1, draw_cell_size-1)
                             pygame.draw.rect(self.screen, bcolor, h_rect, 1, border_radius=4)
+                            
                         # Thin border on constraint (numbered) cells
                         for con_cell in cluster:
                             cx = MARGIN + con_cell.c * draw_cell_size
                             cy = MARGIN + con_cell.r * draw_cell_size
                             c_rect = pygame.Rect(cx, cy, draw_cell_size-1, draw_cell_size-1)
                             pygame.draw.rect(self.screen, bcolor, c_rect, 1, border_radius=4)
+                            
                     # --- LEGEND below the grid ---
                     legend_y = MARGIN + grid_px + 10
                     legend_font = pygame.font.SysFont("Consolas", 13)
                     lx = MARGIN
                     for ci, bcolor in active_clusters:
-                        name = bt_names[ci % len(bt_names)]
                         label = f"Cluster {ci+1}"
                         pygame.draw.rect(self.screen, bcolor, (lx, legend_y + 2, 10, 10))
                         ltxt = legend_font.render(label, True, bcolor)
@@ -652,7 +660,7 @@ class App:
                         lx += ltxt.get_width() + 24
                 else:
                     # D&C / DP: Line-based visualization
-                    for cluster in ai.clusters:
+                    for cluster in vis_solver.clusters:
                         if len(cluster) > 1:
                             for k in range(len(cluster) - 1):
                                 c1, c2 = cluster[k], cluster[k+1]
@@ -716,6 +724,9 @@ class App:
             if show_undo_btn:
                 btn_undo.draw(self.screen, self.font)
             btn_hint.draw(self.screen, self.font)
+            if auto_solving:
+                btn_speed.draw(self.screen, self.font)
+            
             if self.vs_cpu:
                 btn_stats.draw(self.screen, self.font)
             btn_save.draw(self.screen, self.font)
@@ -829,6 +840,8 @@ class App:
                 ai.log(f"Board Cleared! Winner: {board.winner}")
                 log_move("System", "Game Over", -1, -1, "Board Cleared", f"Winner: {board.winner}")
 
+        fast_forward = False
+        
         running = True
         while running:
             mins = elapsed_time // 60
@@ -848,6 +861,10 @@ class App:
                 
             btn_undo = Button(game_w - 230, game_h - 50, 100, 30, "UNDO", color=C_PANEL)
             btn_hint = Button(game_w - 230, game_h - 90, 100, 30, "HINT", color=(100, 100, 120))
+            if auto_solving:
+                ff_color = (255, 140, 0) if fast_forward else C_PANEL
+                ff_text = "FAST ON" if fast_forward else "FAST OFF"
+                btn_speed = Button(game_w - 340, game_h - 50, 100, 30, ff_text, color=ff_color)
             btn_stats = Button(game_w - 230, game_h - 170, 100, 30, "📊 STATS", color=(70, 70, 110))
             btn_save = Button(game_w - 120, game_h - 130, 100, 30, "SAVE LOG", color=(50, 100, 50))
 
@@ -932,6 +949,9 @@ class App:
                           ai.log("Hint: Logic found.")
                       else:
                           ai.log("Hint: No strict logic found.")
+
+                if auto_solving and btn_speed.is_clicked(event):
+                    fast_forward = not fast_forward
 
                 if self.vs_cpu and btn_stats.is_clicked(event):
                     show_stats_overlay = True
@@ -1091,7 +1111,8 @@ class App:
                         if frontier:
                             draw_game(time_str, timer_color, show_undo, highlights=frontier, highlight_col=C_THINKING)
                             pygame.display.flip()
-                            pygame.time.delay(130)
+                            delay_think = 10 if fast_forward else 130
+                            pygame.time.delay(delay_think)
 
                         # 2. Get move from BacktrackingSolver
                         move = auto_solver.get_move(board)
@@ -1101,7 +1122,8 @@ class App:
                             # 3. VISUALIZE CHOICE (Choosing Phase)
                             draw_game(time_str, timer_color, show_undo, highlights=[(r,c)], highlight_col=C_CHOOSING)
                             pygame.display.flip()
-                            pygame.time.delay(130)
+                            delay_choice = 10 if fast_forward else 130
+                            pygame.time.delay(delay_choice)
 
                             # 4. EXECUTE MOVE
                             last_ai_move = (r, c)
