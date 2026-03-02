@@ -71,6 +71,9 @@ class DPSolver:
 
         return clusters
 
+    # Maximum hidden cells per cluster before falling back to greedy
+    MAX_HIDDEN_PER_CLUSTER = 20
+
     def dp_solve_cluster(self, cluster, board):
         hidden_set = set()
         for cell in cluster:
@@ -81,6 +84,11 @@ class DPSolver:
 
         if not hidden_list:
             return [], []
+
+        # --- GUARD: Skip full DP for oversized clusters ---
+        if len(hidden_list) > self.MAX_HIDDEN_PER_CLUSTER:
+            self.log(f"DP: Cluster too large ({len(hidden_list)} hidden), using greedy fallback")
+            return self._greedy_fallback(cluster, board)
 
         initial_needs = []
         for cell in cluster:
@@ -140,6 +148,27 @@ class DPSolver:
                 elif mine_counts[h] == 0:
                     safe_moves.append(h)
 
+        return safe_moves, flag_moves
+
+    def _greedy_fallback(self, cluster, board):
+        """Simple constraint-based fallback for large clusters."""
+        safe_moves = []
+        flag_moves = []
+        for cell in cluster:
+            hidden = board.get_hidden_neighbors(cell)
+            flagged = board.get_flagged_neighbors(cell)
+            remaining = cell.number - len(flagged)
+
+            if remaining == 0:
+                # All mines accounted for — remaining hidden are safe
+                for h in hidden:
+                    if h not in safe_moves:
+                        safe_moves.append(h)
+            elif remaining == len(hidden):
+                # All hidden must be mines
+                for h in hidden:
+                    if h not in flag_moves:
+                        flag_moves.append(h)
         return safe_moves, flag_moves
 
     def make_guess(self, board):

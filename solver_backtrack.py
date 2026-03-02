@@ -214,9 +214,11 @@ class BacktrackingSolver:
         """Simple single-pass rules for clusters too large to backtrack."""
         safe = []
         flags = []
+        checks = 0
         for cell in cluster:
             hidden = board.get_hidden_neighbors(cell)
             flagged = board.get_flagged_neighbors(cell)
+            checks += 1
             if not hidden:
                 continue
             if len(flagged) == cell.number:
@@ -227,6 +229,9 @@ class BacktrackingSolver:
                 for h in hidden:
                     if h not in flags:
                         flags.append(h)
+        # Record that we did constraint work even though we didn't backtrack
+        self.bt_stats['solutions'] += 1 if (safe or flags) else 0
+        self.bt_stats['pruned'] += checks
         return safe, flags, None
 
     # ── Random Guess ──────────────────────────────────────────────
