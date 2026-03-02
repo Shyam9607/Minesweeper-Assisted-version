@@ -1,5 +1,6 @@
 # Minesweeper Graph AI
-yet to update
+#yet to update#
+
 A modern, feature-rich Minesweeper clone built with Python and Pygame, featuring a smart "Greedy" AI opponent that plays alongside you.
 
 ## 🚀 How to Run
@@ -66,4 +67,5 @@ Every time the AI takes a turn or provides a hint:
 2.  It checks **Rule 1** (Safe spots). If found, it executes immediately.
 3.  If no safe spots, it checks **Rule 2** (Mines).
 4.  If logical deduction is impossible, it defaults to **Rule 3** (Guess).
+
 
