@@ -2,7 +2,7 @@ import random
 import time
 from collections import deque
 
-\
+# only ai solver changed
 # MINESWEEPER AI SOLVER — MULTI-ALGORITHM MODULE
 
 # Implements four distinct solving strategies, each timed per
@@ -536,4 +536,5 @@ def make_solver(name):
 
 
 AI_Solver = GreedySolver
+
 
